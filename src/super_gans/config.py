@@ -5,10 +5,16 @@ import yaml
 from importlib import resources
 from pathlib import Path
 
+#Detect if running in Kaggle
+IN_KAGGLE = "KAGGLE_KERNEL_RUN_TYPE" in os.environ
+
 # Detect if running in Colab
 IN_COLAB = 'COLAB_GPU' in os.environ
 repo = "super_gans"
-if IN_COLAB:
+if IN_KAGGLE:
+    PROJECT_PATH = f"/kaggle/working/{repo}"
+    DRIVE_PATH = f"/kaggle/working"
+elif IN_COLAB:
     PROJECT_PATH = f"/content/{repo}"
     DRIVE_PATH = f"/content/drive/MyDrive/{repo}"
 else:
@@ -32,6 +38,7 @@ print(config['repos']['dataset_handle'])
 
 # Hyperparameters etc.
 device = "cuda" if torch.cuda.is_available() else "cpu"
+
 lr = 2e-4
 z_dim = 64
 image_size = 64

@@ -94,29 +94,28 @@ def train_loop(train_dataset, val_dataset):
     # Calculate weights: Higher weight for fewer samples
     # Formula: weight = total_samples / (num_classes * class_count)
     weights = [total_samples / (len(class_counts) * c) for c in class_counts]
-    class_weights = torch.FloatTensor(weights).to(device)
+    class_weights = torch.FloatTensor(weights).to(cfg.device)
 
     print(f"Samples per class: {class_counts}")
     print(f"Calculated weights: {class_weights}")
 
 
     # Setup
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = PneumoniaClassifier(num_classes=2).to(device)
+    model = PneumoniaClassifier(num_classes=2).to(cfg.device)
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
     #criterion = nn.CrossEntropyLoss()
     criterion = nn.CrossEntropyLoss(weight=class_weights) #add class weights to overcome data imbalance
     # Metrics
-    train_acc_metric = Accuracy(task="multiclass", num_classes=2).to(device)
-    val_acc_metric = Accuracy(task="multiclass", num_classes=2).to(device)
-    val_f1_metric = F1Score(task="multiclass", num_classes=2).to(device)
+    train_acc_metric = Accuracy(task="multiclass", num_classes=2).to(cfg.device)
+    val_acc_metric = Accuracy(task="multiclass", num_classes=2).to(cfg.device)
+    val_f1_metric = F1Score(task="multiclass", num_classes=2).to(cfg.device)
     
     for epoch in range(cfg.classify_num_epochs):
         # --- TRAINING PHASE ---
         model.train()
         train_loss = 0.0
         for x, y in train_loader:
-            x, y = x.to(device), y.to(device)
+            x, y = x.to(cfg.device), y.to(cfg.device)
             
             # Forward pass
             logits = model(x)
@@ -136,7 +135,7 @@ def train_loop(train_dataset, val_dataset):
         val_loss = 0.0
         with torch.no_grad():
             for x, y in val_loader:
-                x, y = x.to(device), y.to(device)
+                x, y = x.to(cfg.device), y.to(cfg.device)
                 logits = model(x)
                 
                 val_loss += criterion(logits, y).item()

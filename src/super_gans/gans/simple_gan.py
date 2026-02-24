@@ -182,8 +182,6 @@ def save_images_fid(dataset, to_dir):
     print(
         f"Saved {min(cfg.num_real_images_to_save, len(dataset))} real Pneumonia images to {to_dir}/"
     )
-    return real_images_dir
-
 
 def reloadModel():
     gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"

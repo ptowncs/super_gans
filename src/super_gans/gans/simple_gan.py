@@ -135,7 +135,7 @@ def training_loop(disc, gen, dataset, wandb):
             current_fid = calculate_fid(gen, loader, fid_metric)
             fid_metric.reset()
             #writer.add_scalar("Metrics/FID", current_fid, global_step=epoch)
-            wandb.log({"Metrics/FID": current_fid}, step=step)
+            wandb.log({"Metrics/FID": current_fid}, step=epoch)
             print(f"--- Epoch [{epoch}] FID Score: {current_fid:.4f} ---")
         
             # Checkpoint: Save as 'best' if quality improved

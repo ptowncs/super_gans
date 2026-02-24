@@ -65,7 +65,7 @@ def load_data(data_path):
         is_valid_file=is_valid_image,)
     return train_dataset, val_dataset
 
-def train_loop():
+def train_loop(train_dataset, val_dataset):
      # Create DataLoaders
     train_loader = DataLoader(
         train_dataset, 

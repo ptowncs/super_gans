@@ -13,6 +13,7 @@ import super_gans.config as cfg
 from super_gans.utils import get_dataset_path
 from torchvision.utils import save_image
 from pytorch_fid import fid_score
+from torchmetrics.image.fid import FrechetInceptionDistance
 
 
 class Discriminator(nn.Module):
@@ -75,33 +76,26 @@ def training_loop(disc, gen, dataset):
     opt_disc = optim.Adam(disc.parameters(), lr=cfg.lr)
     opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr)
     criterion = nn.BCELoss()
-
-    writer_fake = SummaryWriter("logs/fake")
-    writer_real = SummaryWriter("logs/real")
+    writer = SummaryWriter("logs/simple_gan_run_1")
     loader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=True)
+    # 'step' tracks total batches seen (X-axis for loss charts)
     step = 0
+    # feature=64 uses a lower layer of Inception; it's faster for monitoring
+    fid_metric = FrechetInceptionDistance(feature=64, normalize=True).to(cfg.device)
+    best_fid = float('inf') # Initialize with infinity
 
     for epoch in range(cfg.num_epochs):
-        for batch_idx, (real, _) in enumerate(loader):
-            real = real.view(-1, cfg.image_dim).to(
-                cfg.device
-            )  # Flatten image into vectors
+        for batch_idx, (real_orig, _) in enumerate(loader):
+            real = real_orig.view(-1, cfg.image_dim).to(cfg.device)
             batch_size = real.shape[0]
 
-            # Train Discriminator
-            noise = torch.randn(batch_size, cfg.z_dim).to(
-                cfg.device
-            )  # generator makes fakes
+            ### Train Discriminator ###
+            noise = torch.randn(batch_size, cfg.z_dim).to(cfg.device)
             fake = gen(noise)
-
-            disc_real = disc(real).view(-1)  # disc tries to classify real images
+            disc_real = disc(real).view(-1)
             lossD_real = criterion(disc_real, torch.ones_like(disc_real))
-
-            disc_fake = disc(fake.detach()).view(
-                -1
-            )  # disc tries to classify real images
+            disc_fake = disc(fake.detach()).view(-1)
             lossD_fake = criterion(disc_fake, torch.zeros_like(disc_fake))
-
             lossD = (lossD_real + lossD_fake) / 2
 
             # Backpropagation
@@ -109,60 +103,55 @@ def training_loop(disc, gen, dataset):
             lossD.backward()
             opt_disc.step()
 
-            # Train Generator
-            output = disc(fake).view(
-                -1
-            )  # Generator looks at images that were detected as fake
+            ### Train Generator ###
+            output = disc(fake).view(-1)
             lossG = criterion(output, torch.ones_like(output))
-
-            # update generator weights
+            
             gen.zero_grad()
             lossG.backward()
             opt_gen.step()
-            fixed_noise = torch.randn((cfg.batch_size, cfg.z_dim)).to(cfg.device)
+
+            # --- LOG LOSSES EVERY BATCH ---
+            writer.add_scalar("Loss/Discriminator", lossD.item(), global_step=step)
+            writer.add_scalar("Loss/Generator", lossG.item(), global_step=step)
+            step += 1 # Increment every batch for smooth loss curves
+
+            # --- VISUALS AT START OF EPOCH ---
             if batch_idx == 0:
-                print(
-                    f"Epoch [{epoch}/{cfg.num_epochs}] Batch {batch_idx}/{len(loader)} "
-                    f"Loss D: {lossD.item():.4f}, loss G: {lossG.item():.4f}"
-                )
+                print(f"Epoch [{epoch}/{cfg.num_epochs}] Loss D: {lossD.item():.4f}, Loss G: {lossG.item():.4f}")
+                log_tensorboard_visuals(writer, gen, real_orig, fixed_noise, epoch)
 
-                with torch.no_grad():
-                    fake = gen(fixed_noise).reshape(
-                        -1, cfg.num_channels, cfg.image_size, cfg.image_size
-                    )
-                    data = real.reshape(
-                        -1, cfg.num_channels, cfg.image_size, cfg.image_size
-                    )
+    # --- FID CALCULATION AT END OF EPOCH ---
+    if epoch % cfg.fid_interval == 0 or epoch == cfg.num_epochs:
+        current_fid = calculate_fid(gen, loader, fid_metric)
+        writer.add_scalar("Metrics/FID", current_fid, global_step=epoch)
+        print(f"--- Epoch [{epoch}] FID Score: {current_fid:.4f} ---")
 
-                    img_grid_fake = torchvision.utils.make_grid(fake, normalize=True)
-                    img_grid_real = torchvision.utils.make_grid(data, normalize=True)
+        # Checkpoint: Save as 'best' if quality improved
+        if current_fid < best_fid:
+            best_fid = current_fid
+            save_model(gen, disc, opt_gen, opt_disc, epoch, filename="best_gan.pth")
+        # Always save 'latest' in case Kaggle session times out
+        save_model(gen, disc, opt_gen, opt_disc, epoch, filename="latest_gan.pth")
 
-                    writer_fake.add_image(
-                        "Pneumonia Fake Images", img_grid_fake, global_step=step
-                    )
-                    writer_real.add_image(
-                        "Pneumonia Real Images", img_grid_real, global_step=step
-                    )
-
-                    step += 1
+    writer.close()
     return opt_disc, opt_gen
 
-
-def save_model(disc, gen, opt_disc, opt_gen):
+def save_model(gen, disc, opt_gen, opt_disc, epoch, filename="checkpoint.pth"):
     gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"
-    gan_results_dir = f"{cfg.RESULTS_DIR}/generated_images_fid"
     os.makedirs(gan_checkpoints_dir, exist_ok=True)
-    os.makedirs(gan_results_dir, exist_ok=True)
 
     checkpoint = {
+        "epoch": epoch,
         "generator_state_dict": gen.state_dict(),
         "discriminator_state_dict": disc.state_dict(),
         "optimizer_G_state_dict": opt_gen.state_dict(),
         "optimizer_D_state_dict": opt_disc.state_dict(),
     }
-    print("Saving GAN state to GAN Checkpoints")
-    torch.save(checkpoint, f"{gan_checkpoints_dir}/simple_gan_checkpoint.pth")
-
+    
+    save_path = f"{gan_checkpoints_dir}/{filename}"
+    torch.save(checkpoint, save_path)
+    print(f"--- Saved checkpoint: {filename} at epoch {epoch} ---")
 
 def save_images_fid(dataset, to_dir):
     os.makedirs(to_dir, exist_ok=True)
@@ -171,11 +160,12 @@ def save_images_fid(dataset, to_dir):
 
         # Convert grayscale -> RGB by repeating channels
         image_rgb = image.repeat(3, 1, 1)
-
+        # Generator uses Tanh (outputting [-1, 1]), ensure normalize=True and value_range=(-1, 1) 
+        # so the PNGs are stored as standard [0, 255] pixel values correctly.
         torchvision.utils.save_image(
             image_rgb,
             os.path.join(to_dir, f"pneumonia_{i:04d}.png"),
-            normalize=False,
+            normalize=True,
             value_range=(-1, 1),
         )
 
@@ -183,33 +173,20 @@ def save_images_fid(dataset, to_dir):
         f"Saved {min(cfg.num_real_images_to_save, len(dataset))} real Pneumonia images to {to_dir}/"
     )
 
-def reloadModel():
+def reloadModel(filename="best_gan.pth"): # Default to the best one
     gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"
-    #  Instantiate models
     generator = Generator().to(cfg.device)
-    discriminator = Discriminator().to(
-        cfg.device
-    )  # Discriminator isn't strictly needed for FID, but useful if you need to inspect it.
+    checkpoint_path = f"{gan_checkpoints_dir}/{filename}"
 
-    #  Path to the checkpoint file
-    checkpoint_path = f"{gan_checkpoints_dir}/simple_gan_checkpoint.pth"
-
-    #  Load the checkpoint
     try:
+        # Map location ensures it loads on the right device (CPU/GPU)
         checkpoint = torch.load(checkpoint_path, map_location=cfg.device)
+        # Use the correct key from your save_model function
         generator.load_state_dict(checkpoint["generator_state_dict"])
-        # discriminator.load_state_dict(checkpoint["discriminator_state_dict"]) # Optional
-        print(f"Checkpoint loaded from {checkpoint_path}")
-    except FileNotFoundError:
-        print(f"Error: Checkpoint file not found at {checkpoint_path}")
-        # Handle the error, maybe exit or use default models
-    except KeyError as e:
-        print(
-            f"Error loading state_dict: Missing key {e}. Ensure checkpoint structure matches."
-        )
-        # Handle error if checkpoint dictionary keys don't match.
-
-    #  Set generator to evaluation mode
+        print(f"Loaded {filename} weights.")
+    except Exception as e:
+        print(f"Failed to load {filename}: {e}")
+        
     generator.eval()
     return generator
 
@@ -228,13 +205,15 @@ def generate_images_fid(generator, generated_images_dir):
 
     # Iterate through the batch and save each image separately
     for i, image in enumerate(generated_images):
+        # Convert Grayscale -> RGB to match the real images directory
+        image_rgb = image.repeat(3, 1, 1)
         # Construct the filename for each image
         filename = os.path.join(
             generated_images_dir, f"generated_image_{i:04d}.png"
         )  # Using f-strings for formatted filename
 
         # Save the individual image (image tensor has shape (channels, height, width))
-        save_image(image, filename, normalize=False)
+        save_image(image_rgb, filename, normalize=True, value_range=(-1, 1))
 
     print(
         f"{cfg.num_images_to_generate} individual images saved to {generated_images_dir}/"
@@ -260,16 +239,91 @@ def calc_fid_score(real_images_dir, generated_images_dir):
     )
     return fid_value
 
+def calculate_fid(gen, loader, fid_metric, num_samples=512):
+    """
+    Calculates FID score by comparing real images from the loader 
+    with generated images from the generator.
+    """
+    gen.eval()
+    fid_metric.reset()
+    
+    # Calculate how many batches we need to reach num_samples
+    batch_size = cfg.batch_size
+    n_batches = cfg.num_real_images_to_save // batch_size
+    data_iter = iter(loader)
+
+    with torch.no_grad():
+        for _ in range(n_batches):
+            # --- 1. Process Real Images ---
+            try:
+                real_batch, _ = next(data_iter)
+            except StopIteration:
+                data_iter = iter(loader)
+                real_batch, _ = next(data_iter)
+                
+            real_batch = real_batch[:batch_size].to(cfg.device)
+            # Convert [1, 64, 64] -> [3, 64, 64] and map [-1, 1] -> [0, 1]
+            real_rgb = (real_batch.repeat(1, 3, 1, 1) + 1.0) / 2.0
+            fid_metric.update(real_rgb, real=True)
+
+            # --- 2. Process Fake Images ---
+            noise = torch.randn(batch_size, cfg.z_dim).to(cfg.device)
+            fake_batch = gen(noise).reshape(-1, cfg.num_channels, cfg.image_size, cfg.image_size)
+            # Convert [1, 64, 64] -> [3, 64, 64] and map [-1, 1] -> [0, 1]
+            fake_rgb = (fake_batch.repeat(1, 3, 1, 1) + 1.0) / 2.0
+            fid_metric.update(fake_rgb, real=False)
+
+        # --- 3. Compute and Log ---
+        fid_score = fid_metric.compute().item()
+        
+    gen.train()
+    return fid_score
+
+def log_tensorboard_visuals(writer, gen, real_batch, fixed_noise, epoch):
+    """
+    Captures the current state of generation vs real images.
+    """
+    gen.eval() 
+    with torch.no_grad():
+        # 1. Generate fakes (Shape: N, 1, H, W)
+        fake = gen(fixed_noise).reshape(-1, cfg.num_channels, cfg.image_size, cfg.image_size)
+        
+        # 2. Reshape real data (Shape: N, 1, H, W)
+        real = real_batch.reshape(-1, cfg.num_channels, cfg.image_size, cfg.image_size)
+
+        # 3. Convert both from 1-channel to 3-channel (RGB)
+        # This is necessary so the grid looks consistent in all viewers
+        fake_rgb = fake.repeat(1, 3, 1, 1)
+        real_rgb = real.repeat(1, 3, 1, 1)
+
+        # 4. Create grids using Torchvision's built-in normalization
+        # normalize=True: shifts the range to [0, 1]
+        # value_range=(-1, 1): tells the function our Tanh/Transform output is [-1, 1]
+        img_grid_fake = torchvision.utils.make_grid(
+            fake_rgb, normalize=True, value_range=(-1, 1)
+        )
+        img_grid_real = torchvision.utils.make_grid(
+            real_rgb, normalize=True, value_range=(-1, 1)
+        )
+
+        # 5. Log to TensorBoard
+        writer.add_image("Images/Generated", img_grid_fake, global_step=epoch)
+        writer.add_image("Images/Real", img_grid_real, global_step=epoch)
+    
+    gen.train()
 
 if __name__ == '__main__':
     dataset = load_data()
     disc = Discriminator().to(cfg.device)
     gen = Generator().to(cfg.device)
     opt_disc, opt_gen = training_loop(disc, gen, dataset)
-    save_model(disc, gen, opt_disc, opt_gen)
+    save_model(disc, gen, opt_disc, opt_gen, "simple_gan_checkpoint.pth")
+    
     real_images_dir = f"{cfg.RESULTS_DIR}/real_images_fid"
     generated_images_dir = f"{cfg.RESULTS_DIR}/fake_images_fid"
     save_images_fid(dataset, real_images_dir)
-    generate_images_fid(reloadModel(), generated_images_dir)
+    last_model = reloadModel("simple_gan_checkpoint.pth")
+    #best_model = reloadModel("best_gan.pth")
+    generate_images_fid(last_model, generated_images_dir)
     fid_value = calc_fid_score(real_images_dir, generated_images_dir)
     print(f"FID score: {fid_value}")

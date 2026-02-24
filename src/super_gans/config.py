@@ -48,5 +48,5 @@ num_channels = 1
 image_dim = image_size * image_size * num_channels
 batch_size = 64
 num_epochs = 400
-num_real_images_to_save = 10000 
-num_images_to_generate = 10000
+num_real_images_to_save = 100 
+num_images_to_generate = 100

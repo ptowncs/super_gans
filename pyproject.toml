@@ -10,6 +10,8 @@ dependencies = [
     "tensorboard>=2.20.0",
     "kagglehub>=0.3.13",
     "pytorch-fid>=0.3.0",
+    "torchmetrics[image]",
+    "torch-fidelity",  # Required for FID calculation
 ]
 [build-system]
 requires = ["hatchling"]

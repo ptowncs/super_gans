@@ -317,7 +317,7 @@ if __name__ == '__main__':
     disc = Discriminator().to(cfg.device)
     gen = Generator().to(cfg.device)
     opt_disc, opt_gen = training_loop(disc, gen, dataset)
-    save_model(disc, gen, opt_disc, opt_gen, "simple_gan_checkpoint.pth")
+    save_model(disc, gen, opt_disc, opt_gen, "last", "simple_gan_checkpoint.pth")
     
     real_images_dir = f"{cfg.RESULTS_DIR}/real_images_fid"
     generated_images_dir = f"{cfg.RESULTS_DIR}/fake_images_fid"

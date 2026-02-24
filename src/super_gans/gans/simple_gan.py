@@ -81,7 +81,7 @@ def training_loop(disc, gen, dataset):
     # 'step' tracks total batches seen (X-axis for loss charts)
     step = 0
     # feature=64 uses a lower layer of Inception; it's faster for monitoring
-    fid_metric = FrechetInceptionDistance(feature=64, normalize=True).to(cfg.device)
+    fid_metric = FrechetInceptionDistance(feature=cfg.fid_dims, normalize=True).to(cfg.device)
     best_fid = float('inf') # Initialize with infinity
 
     for epoch in range(cfg.num_epochs):
@@ -178,14 +178,10 @@ def save_images_fid(dataset, to_dir):
 
         # Convert grayscale -> RGB by repeating channels
         image_rgb = image.repeat(3, 1, 1)
+        filename = os.path.join(to_dir, f"pneumonia_{i:04d}.png")
         # Generator uses Tanh (outputting [-1, 1]), ensure normalize=True and value_range=(-1, 1) 
         # so the PNGs are stored as standard [0, 255] pixel values correctly.
-        torchvision.utils.save_image(
-            image_rgb,
-            os.path.join(to_dir, f"pneumonia_{i:04d}.png"),
-            normalize=True,
-            value_range=(-1, 1),
-        )
+        save_image(image_rgb, filename, normalize=True, value_range=(-1, 1))
 
     print(
         f"Saved {min(cfg.num_images_fid_score, len(dataset))} real Pneumonia images to {to_dir}/"
@@ -207,10 +203,7 @@ def generate_images_fid(generator, generated_images_dir):
     for i, image in enumerate(generated_images):
         # Convert Grayscale -> RGB to match the real images directory
         image_rgb = image.repeat(3, 1, 1)
-        # Construct the filename for each image
-        filename = os.path.join(
-            generated_images_dir, f"generated_image_{i:04d}.png"
-        )  # Using f-strings for formatted filename
+        filename = os.path.join(generated_images_dir, f"generated_image_{i:04d}.png")
 
         # Save the individual image (image tensor has shape (channels, height, width))
         save_image(image_rgb, filename, normalize=True, value_range=(-1, 1))
@@ -235,7 +228,7 @@ def calc_fid_score(real_images_dir, generated_images_dir):
         [real_images_dir, generated_images_dir],
         batch_size=50,  # Adjust batch size based on available GPU memory
         device=device,
-        dims=2048,  # Inception v3 output dimension
+        dims= cfg.fid_dims,  # Inception v3 output dimension
     )
     return fid_value
 

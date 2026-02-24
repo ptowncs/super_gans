@@ -51,3 +51,4 @@ num_epochs = 5
 num_images_fid_sample = 100 
 num_images_fid_score = 5000
 fid_interval = 25
+fid_dims = 2048

@@ -1,7 +1,6 @@
 paths:
   repo: "super_gans"
-  data_dir: "/content/${repo}/data"
-  output_dir: "/content/${repo}/results"
+  output_dir: "${repo}/results"
 repos:
   dataset_handle: "paultimothymooney/chest-xray-pneumonia"
 tuning:

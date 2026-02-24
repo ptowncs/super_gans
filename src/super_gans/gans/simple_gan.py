@@ -89,9 +89,9 @@ def training_loop(disc, gen, dataset, wandb):
     best_fid_epoch = 0
     for epoch in range(cfg.num_epochs):
         process = psutil.Process(os.getpid())
-        print("RAM GB:", process.memory_info().rss / 1024**3)
-        print("GPU GB:", torch.cuda.memory_allocated() / 1024**3)
-        
+        print(f"Epoch: {epoch} | RAM GB: {process.memory_info().rss / 1024**3:.2f} \
+              | GPU GB: {torch.cuda.memory_allocated() / 1024**3:.2f}")
+
         for batch_idx, (real_orig, _) in enumerate(loader):
             real = real_orig.view(-1, cfg.image_dim).to(cfg.device)
             batch_size = real.shape[0]
@@ -331,11 +331,9 @@ def log_tensorboard_visuals(wandb, gen, real_batch, fixed_noise, epoch):
         # --- Make grids ---
         
         # --- Log to WandB ---
-        wandb.log({
-            "Generated Images": [wandb.Image(img_grid_fake)],
-            "Real Images": [wandb.Image(img_grid_real)]
-        }, step=epoch)
-    
+        wandb.log({"Generated Grid": wandb.Image(img_grid_fake),
+                   "Real Grid": wandb.Image(img_grid_real),
+                   "epoch": epoch})
     gen.train()
 
 def createWandB():

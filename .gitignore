@@ -1,0 +1,40 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+env/
+.venv/
+.env/
+
+# Jupyter / Colab
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Data directories
+data/
+**/data/  # ignore any data/ folder recursively
+*.h5
+*.hdf5
+*.csv
+*.npz
+*.npy
+
+# Models / outputs
+models/
+outputs/
+logs/
+*.ckpt
+*.pth
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# PyCharm / VS Code
+.idea/
+.vscode/
+

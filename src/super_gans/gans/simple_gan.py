@@ -14,7 +14,8 @@ from super_gans.utils import get_dataset_path
 from torchvision.utils import save_image
 from pytorch_fid import fid_score
 from torchmetrics.image.fid import FrechetInceptionDistance
-
+import wandb
+import gc
 
 class Discriminator(nn.Module):
     def __init__(self):
@@ -83,7 +84,7 @@ def training_loop(disc, gen, dataset):
     # feature=64 uses a lower layer of Inception; it's faster for monitoring
     fid_metric = FrechetInceptionDistance(feature=cfg.fid_dims, normalize=True).to(cfg.device)
     best_fid = float('inf') # Initialize with infinity
-
+    best_fid_epoch = 0
     for epoch in range(cfg.num_epochs):
         for batch_idx, (real_orig, _) in enumerate(loader):
             real = real_orig.view(-1, cfg.image_dim).to(cfg.device)
@@ -123,20 +124,42 @@ def training_loop(disc, gen, dataset):
 
         # --- FID CALCULATION AT END OF EPOCH ---
         if epoch % cfg.fid_interval == 0 or epoch == cfg.num_epochs:
+            save_model(gen, disc, opt_gen, opt_disc, epoch, filename="latest_gan.pth")
             current_fid = calculate_fid(gen, loader, fid_metric)
             writer.add_scalar("Metrics/FID", current_fid, global_step=epoch)
             print(f"--- Epoch [{epoch}] FID Score: {current_fid:.4f} ---")
+        
+            # Checkpoint: Save as 'best' if quality improved
+            if current_fid < best_fid:
+                best_fid = current_fid
+                best_fid_epoch = epoch
+                save_model(gen, disc, opt_gen, opt_disc, epoch, filename="best_gan.pth")
+        
+        # End of Epoch cleanup
         writer.flush()
-        # Checkpoint: Save as 'best' if quality improved
-        if current_fid < best_fid:
-            best_fid = current_fid
-            save_model(gen, disc, opt_gen, opt_disc, epoch, filename="best_gan.pth")
-        # Always save 'latest' in case Kaggle session times out
-        save_model(gen, disc, opt_gen, opt_disc, epoch, filename="latest_gan.pth")
+        torch.cuda.empty_cache()
+        gc.collect()
+        
     
+    writer.add_text('Final Results', f'Best FID Epoch: {best_fid_epoch}, Best FID Sample Score: {best_fid}')
     writer.flush()
     writer.close()
+    
     return opt_disc, opt_gen
+
+def uploadLogsAndMetricsToWandB(fid_value=-1):
+    wandb.init(project="super-gans-project", sync_tensorboard=True)
+    # Upload model
+    artifact = wandb.Artifact("simple-gan-model", type="model")
+    gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"
+    file_path = f"{gan_checkpoints_dir}/best_gan.pth"
+    artifact.add_file(file_path)
+    wandb.log_artifact(artifact)
+
+    # Log final metrics
+    wandb.log({"final_fid": fid_value})
+    wandb.finish()
+
 
 def save_model(gen, disc, opt_gen, opt_disc, epoch, filename="checkpoint.pth"):
     gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"
@@ -192,7 +215,7 @@ def generate_images_fid(generator, generated_images_dir):
     gen_noise = torch.randn(cfg.num_images_fid_score, cfg.z_dim).to(cfg.device)
 
     # Generate images
-    with torch.no_grad():
+    with torch.inference_mode():
         generated_images = generator(gen_noise).reshape(
             -1, cfg.num_channels, cfg.image_size, cfg.image_size
         )  # Reshape for saving/display
@@ -241,11 +264,12 @@ def calculate_fid(gen, loader, fid_metric):
     fid_metric.reset()
     
     # Calculate how many batches we need to reach num_samples
+    assert cfg.num_images_fid_sample % cfg.batch_size == 0, "FID sample count must be divisible by batch size"
     batch_size = cfg.batch_size
     n_batches = cfg.num_images_fid_sample // batch_size
     data_iter = iter(loader)
 
-    with torch.no_grad():
+    with torch.inference_mode():
         for _ in range(n_batches):
             # --- 1. Process Real Images ---
             try:
@@ -277,7 +301,7 @@ def log_tensorboard_visuals(writer, gen, real_batch, fixed_noise, epoch):
     Captures the current state of generation vs real images.
     """
     gen.eval() 
-    with torch.no_grad():
+    with torch.inference_mode():
         # 1. Generate fakes (Shape: N, 1, H, W)
         fake = gen(fixed_noise).reshape(-1, cfg.num_channels, cfg.image_size, cfg.image_size)
         
@@ -320,3 +344,4 @@ if __name__ == '__main__':
     generate_images_fid(last_model, generated_images_dir)
     fid_value = calc_fid_score(real_images_dir, generated_images_dir)
     print(f"FID score: {fid_value}")
+    uploadLogsAndMetricsToWandB(fid_value)

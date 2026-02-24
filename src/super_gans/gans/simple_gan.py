@@ -153,26 +153,6 @@ def save_model(gen, disc, opt_gen, opt_disc, epoch, filename="checkpoint.pth"):
     torch.save(checkpoint, save_path)
     print(f"--- Saved checkpoint: {filename} at epoch {epoch} ---")
 
-def save_images_fid(dataset, to_dir):
-    os.makedirs(to_dir, exist_ok=True)
-    for i in range(min(cfg.num_real_images_to_save, len(dataset))):
-        image, _ = dataset[i]  # image is a tensor in shape (1, 64, 64)
-
-        # Convert grayscale -> RGB by repeating channels
-        image_rgb = image.repeat(3, 1, 1)
-        # Generator uses Tanh (outputting [-1, 1]), ensure normalize=True and value_range=(-1, 1) 
-        # so the PNGs are stored as standard [0, 255] pixel values correctly.
-        torchvision.utils.save_image(
-            image_rgb,
-            os.path.join(to_dir, f"pneumonia_{i:04d}.png"),
-            normalize=True,
-            value_range=(-1, 1),
-        )
-
-    print(
-        f"Saved {min(cfg.num_real_images_to_save, len(dataset))} real Pneumonia images to {to_dir}/"
-    )
-
 def reloadModel(filename="best_gan.pth"): # Default to the best one
     gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"
     generator = Generator().to(cfg.device)
@@ -190,10 +170,29 @@ def reloadModel(filename="best_gan.pth"): # Default to the best one
     generator.eval()
     return generator
 
+def save_images_fid(dataset, to_dir):
+    os.makedirs(to_dir, exist_ok=True)
+    for i in range(min(cfg.num_images_fid_score, len(dataset))):
+        image, _ = dataset[i]  # image is a tensor in shape (1, 64, 64)
+
+        # Convert grayscale -> RGB by repeating channels
+        image_rgb = image.repeat(3, 1, 1)
+        # Generator uses Tanh (outputting [-1, 1]), ensure normalize=True and value_range=(-1, 1) 
+        # so the PNGs are stored as standard [0, 255] pixel values correctly.
+        torchvision.utils.save_image(
+            image_rgb,
+            os.path.join(to_dir, f"pneumonia_{i:04d}.png"),
+            normalize=True,
+            value_range=(-1, 1),
+        )
+
+    print(
+        f"Saved {min(cfg.num_images_fid_score, len(dataset))} real Pneumonia images to {to_dir}/"
+    )
 
 def generate_images_fid(generator, generated_images_dir):
     # Generate random noise vectors
-    gen_noise = torch.randn(cfg.num_images_to_generate, cfg.z_dim).to(cfg.device)
+    gen_noise = torch.randn(cfg.num_images_fid_score, cfg.z_dim).to(cfg.device)
 
     # Generate images
     with torch.no_grad():
@@ -216,7 +215,7 @@ def generate_images_fid(generator, generated_images_dir):
         save_image(image_rgb, filename, normalize=True, value_range=(-1, 1))
 
     print(
-        f"{cfg.num_images_to_generate} individual images saved to {generated_images_dir}/"
+        f"{cfg.num_images_fid_score} individual images saved to {generated_images_dir}/"
     )
 
 
@@ -239,7 +238,7 @@ def calc_fid_score(real_images_dir, generated_images_dir):
     )
     return fid_value
 
-def calculate_fid(gen, loader, fid_metric, num_samples=512):
+def calculate_fid(gen, loader, fid_metric):
     """
     Calculates FID score by comparing real images from the loader 
     with generated images from the generator.
@@ -249,7 +248,7 @@ def calculate_fid(gen, loader, fid_metric, num_samples=512):
     
     # Calculate how many batches we need to reach num_samples
     batch_size = cfg.batch_size
-    n_batches = cfg.num_real_images_to_save // batch_size
+    n_batches = cfg.num_images_fid_sample // batch_size
     data_iter = iter(loader)
 
     with torch.no_grad():

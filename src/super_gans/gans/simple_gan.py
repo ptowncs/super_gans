@@ -10,6 +10,7 @@ from torch.utils.tensorboard import SummaryWriter  # to print to tensorboard
 from torch.utils.data import RandomSampler
 from PIL import Image  # Import PIL Image
 import super_gans.config as cfg
+from super_gans.utils import get_dataset_path
 from torchvision.utils import save_image
 from pytorch_fid import fid_score
 
@@ -58,8 +59,8 @@ def load_data():
             transforms.Normalize((0.5,), (0.5,)),  # normalize images , [0,1] to [-1,1]
         ]
     )
-    dataset_path = f"{cfg.DATA_DIR}/datasets/paultimothymooney/chest-xray-pneumonia"
-    chest_xray_ds = f"{dataset_path}/versions/2/chest_xray"
+    dataset_path = get_dataset_path("paultimothymooney/chest-xray-pneumonia/versions/2")
+    chest_xray_ds =  f"{dataset_path}/chest_xray"
     dataset = datasets.ImageFolder(
         root=f"{chest_xray_ds}/train",
         transform=transforms_pipeline,

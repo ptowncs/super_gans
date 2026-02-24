@@ -27,6 +27,9 @@ sources = ["src"]
 # Explicitly select only your package folder to exclude notebooks/ etc.
 packages = ["src/super_gans"]
 
+[tool.uv.sources]
+super_gans = { path = ".", editable = true }
+
 [tool.hatch.build.targets.sdist]
 # Ensure sdist also includes all files without VCS filtering
 ignore-vcs = true

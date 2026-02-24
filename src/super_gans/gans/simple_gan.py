@@ -331,8 +331,8 @@ def log_tensorboard_visuals(wandb, gen, real_batch, fixed_noise, epoch):
         # --- Make grids ---
         
         # --- Log to WandB ---
-        wandb.log({"Generated Grid": wandb.Image(img_grid_fake),
-                   "Real Grid": wandb.Image(img_grid_real),
+        wandb.log({"Generated Grid": wandb.Image(img_grid_fake, caption=f"epoch_{epoch:03d}"),
+                   "Real Grid": wandb.Image(img_grid_real, caption=f"epoch_{epoch:03d}"),
                    "epoch": epoch})
     gen.train()
 

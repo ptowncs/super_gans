@@ -1,15 +1,15 @@
 [project]
 name = "super-gans"
 version = "0.1.0"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
-    "kagglehub>=0.3.13",
-    "numpy<2",
-    "pytorch-fid>=0.3.0",
+    "torch>=2.10.0",
+    "torchvision>=0.25.0",
+    "numpy>=2.0.0",
     "pyyaml>=6.0.3",
     "tensorboard>=2.20.0",
-    "torch==2.2.2",
-    "torchvision==0.17.2",
+    "kagglehub>=0.3.13",
+    "pytorch-fid>=0.3.0",
 ]
 [build-system]
 requires = ["hatchling"]
@@ -44,3 +44,9 @@ dev = [
 follow_imports = "silent"
 ignore_missing_imports = true
 disallow_untyped_calls = false
+
+[tool.uv]
+environments = [
+    "sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'"
+]

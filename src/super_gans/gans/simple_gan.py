@@ -121,19 +121,20 @@ def training_loop(disc, gen, dataset):
                 print(f"Epoch [{epoch}/{cfg.num_epochs}] Loss D: {lossD.item():.4f}, Loss G: {lossG.item():.4f}")
                 log_tensorboard_visuals(writer, gen, real_orig, fixed_noise, epoch)
 
-    # --- FID CALCULATION AT END OF EPOCH ---
-    if epoch % cfg.fid_interval == 0 or epoch == cfg.num_epochs:
-        current_fid = calculate_fid(gen, loader, fid_metric)
-        writer.add_scalar("Metrics/FID", current_fid, global_step=epoch)
-        print(f"--- Epoch [{epoch}] FID Score: {current_fid:.4f} ---")
-
+        # --- FID CALCULATION AT END OF EPOCH ---
+        if epoch % cfg.fid_interval == 0 or epoch == cfg.num_epochs:
+            current_fid = calculate_fid(gen, loader, fid_metric)
+            writer.add_scalar("Metrics/FID", current_fid, global_step=epoch)
+            print(f"--- Epoch [{epoch}] FID Score: {current_fid:.4f} ---")
+        writer.flush()
         # Checkpoint: Save as 'best' if quality improved
         if current_fid < best_fid:
             best_fid = current_fid
             save_model(gen, disc, opt_gen, opt_disc, epoch, filename="best_gan.pth")
         # Always save 'latest' in case Kaggle session times out
         save_model(gen, disc, opt_gen, opt_disc, epoch, filename="latest_gan.pth")
-
+    
+    writer.flush()
     writer.close()
     return opt_disc, opt_gen
 

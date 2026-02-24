@@ -14,6 +14,12 @@ dependencies = [
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build]
+source-dir = "src"
+packages = ["super_gans"]        # include all python files under src/super_gans
+include-package-data = true      # include config.yaml
+
 [tool.hatch.build.targets.sdist]
 include = [
     "src/super_gans/config.yaml"

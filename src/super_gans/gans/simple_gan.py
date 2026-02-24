@@ -274,7 +274,6 @@ def calculate_fid(gen, loader, fid_metric):
     batch_size = cfg.batch_size
     n_batches = cfg.num_images_fid_sample // batch_size
     data_iter = iter(loader)
-
     with torch.inference_mode():
         for _ in range(n_batches):
             # --- 1. Process Real Images ---
@@ -297,8 +296,8 @@ def calculate_fid(gen, loader, fid_metric):
             fake_rgb = (fake_batch.repeat(1, 3, 1, 1) + 1.0) / 2.0
             fid_metric.update(fake_rgb, real=False)
 
-        # --- 3. Compute and Log ---
-        fid_score = fid_metric.compute().item()
+    # --- 3. Compute and Log ---
+    fid_score = fid_metric.compute().item()
         
     gen.train()
     return fid_score

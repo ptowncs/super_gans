@@ -10,6 +10,8 @@ IN_KAGGLE = "KAGGLE_KERNEL_RUN_TYPE" in os.environ
 
 # Detect if running in Colab
 IN_COLAB = 'COLAB_GPU' in os.environ
+print(f"IN_KAGGLE: {IN_KAGGLE}")
+print(f"IN_COLAB: {IN_COLAB}")
 repo = "super_gans"
 if IN_KAGGLE:
     PROJECT_PATH = f"/kaggle/working/{repo}"

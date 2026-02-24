@@ -22,12 +22,12 @@ include-package-data = true      # include config.yaml
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "src/super_gans/config.yaml"
+    "super_gans/**"            # include all files under super_gans
 ]
 
 [tool.hatch.build.targets.wheel]
 include = [
-    "src/super_gans/config.yaml"
+    "super_gans/**"            # include all files under super_gans
 ]
 
 [dependency-groups]

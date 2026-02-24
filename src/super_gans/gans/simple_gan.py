@@ -6,7 +6,7 @@ import torchvision
 import torchvision.datasets as datasets
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
-from torch.utils.tensorboard import SummaryWriter  # to print to tensorboard
+#from torch.utils.tensorboard import SummaryWriter  # to print to tensorboard
 from torch.utils.data import RandomSampler
 from PIL import Image  # Import PIL Image
 import super_gans.config as cfg
@@ -72,13 +72,13 @@ def load_data():
     return dataset
 
 
-def training_loop(disc, gen, dataset):
+def training_loop(disc, gen, dataset, wandb):
     fixed_noise = torch.randn((cfg.batch_size, cfg.z_dim)).to(cfg.device)
 
     opt_disc = optim.Adam(disc.parameters(), lr=cfg.lr)
     opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr)
     criterion = nn.BCELoss()
-    writer = SummaryWriter("logs/simple_gan_run_1")
+    
     loader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=0, pin_memory=False)
     # 'step' tracks total batches seen (X-axis for loss charts)
     step = 0
@@ -119,21 +119,23 @@ def training_loop(disc, gen, dataset):
             opt_gen.step()
             if batch_idx % 20 == 0:
                 # --- LOG LOSSES EVERY 20th BATCH ---
-                writer.add_scalar("Loss/Discriminator", lossD.item(), global_step=step)
-                writer.add_scalar("Loss/Generator", lossG.item(), global_step=step)
+                #writer.add_scalar("Loss/Discriminator", lossD.item(), global_step=step)
+                #writer.add_scalar("Loss/Generator", lossG.item(), global_step=step)
+                wandb.log({"Loss/Discriminator": lossD.item(), "Loss/Generator": lossG.item()}, step=step)
             step += 1 # Increment every batch for smooth loss curves
 
         # --- VISUALS AT START OF EPOCH ---
         if epoch % 10 == 0:
             print(f"Epoch [{epoch}/{cfg.num_epochs}] Loss D: {lossD.item():.4f}, Loss G: {lossG.item():.4f}")
-            log_tensorboard_visuals(writer, gen, real_orig, fixed_noise, epoch)
+            log_tensorboard_visuals(wandb, gen, real_orig, fixed_noise, epoch)
 
         # --- FID CALCULATION AT END OF EPOCH ---
         if epoch % cfg.fid_interval == 0 or epoch == cfg.num_epochs - 1:
             save_model(gen, disc, opt_gen, opt_disc, epoch, filename="latest_gan.pth")
             current_fid = calculate_fid(gen, loader, fid_metric)
             fid_metric.reset()
-            writer.add_scalar("Metrics/FID", current_fid, global_step=epoch)
+            #writer.add_scalar("Metrics/FID", current_fid, global_step=epoch)
+            wandb.log({"Metrics/FID": current_fid}, step=step)
             print(f"--- Epoch [{epoch}] FID Score: {current_fid:.4f} ---")
         
             # Checkpoint: Save as 'best' if quality improved
@@ -143,30 +145,26 @@ def training_loop(disc, gen, dataset):
                 save_model(gen, disc, opt_gen, opt_disc, epoch, filename="best_gan.pth")
         
         # End of Epoch cleanup
-        writer.flush()
+        #writer.flush()
         torch.cuda.empty_cache()
         gc.collect()
         
     
-    writer.add_text('Final Results', f'Best FID Epoch: {best_fid_epoch}, Best FID Sample Score: {best_fid}')
-    writer.flush()
-    writer.close()
+    #writer.add_text('Final Results', f'Best FID Epoch: {best_fid_epoch}, Best FID Sample Score: {best_fid}')
+    wandb.summary["Best FID Epoch"] = best_fid_epoch
+    wandb.summary["Best FID Score"] = best_fid
+    #writer.flush()
+    
     
     return opt_disc, opt_gen
 
-def uploadLogsAndMetricsToWandB(fid_value=-1):
-    wandb.init(project="super-gans-project", sync_tensorboard=True)
+def uploadLogsAndMetricsToWandB(wandb):
     # Upload model
     artifact = wandb.Artifact("simple-gan-model", type="model")
     gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"
     file_path = f"{gan_checkpoints_dir}/best_gan.pth"
     artifact.add_file(file_path)
     wandb.log_artifact(artifact)
-
-    # Log final metrics
-    wandb.log({"final_fid": fid_value})
-    wandb.finish()
-
 
 def save_model(gen, disc, opt_gen, opt_disc, epoch, filename="checkpoint.pth"):
     gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"
@@ -305,7 +303,7 @@ def calculate_fid(gen, loader, fid_metric):
     gen.train()
     return fid_score
 
-def log_tensorboard_visuals(writer, gen, real_batch, fixed_noise, epoch):
+def log_tensorboard_visuals(wandb, gen, real_batch, fixed_noise, epoch):
     """
     Captures the current state of generation vs real images.
     """
@@ -325,24 +323,42 @@ def log_tensorboard_visuals(writer, gen, real_batch, fixed_noise, epoch):
         # 4. Create grids using Torchvision's built-in normalization
         # normalize=True: shifts the range to [0, 1]
         # value_range=(-1, 1): tells the function our Tanh/Transform output is [-1, 1]
-        img_grid_fake = torchvision.utils.make_grid(
-            fake_rgb, normalize=True, value_range=(-1, 1)
-        )
-        img_grid_real = torchvision.utils.make_grid(
-            real_rgb, normalize=True, value_range=(-1, 1)
-        )
-
+        img_grid_fake = torchvision.utils.make_grid(fake_rgb, nrow=8, normalize=True, value_range=(-1, 1))
+        img_grid_real = torchvision.utils.make_grid(real_rgb, nrow=8, normalize=True, value_range=(-1, 1))
         # 5. Log to TensorBoard
-        writer.add_image("Images/Generated", img_grid_fake, global_step=epoch)
-        writer.add_image("Images/Real", img_grid_real, global_step=epoch)
+        #writer.add_image("Images/Generated", img_grid_fake, global_step=epoch)
+        #writer.add_image("Images/Real", img_grid_real, global_step=epoch)
+        # --- Make grids ---
+        
+        # --- Log to WandB ---
+        wandb.log({
+            "Generated Images": [wandb.Image(img_grid_fake)],
+            "Real Images": [wandb.Image(img_grid_real)]
+        }, step=epoch)
     
     gen.train()
 
+def createWandB():
+    wandb.init(
+        project="super-gans-project",
+        name="gan_run_1",
+        config={
+            "epochs": cfg.num_epochs,
+            "batch_size": cfg.batch_size,
+            "lr": cfg.lr,
+            "z_dim": cfg.z_dim,
+            "image_size": cfg.image_size,
+            "num_channels": cfg.num_channels,
+            })
+    return wandb
+
 if __name__ == '__main__':
+    #writer = SummaryWriter("logs/simple_gan_run_1")
+    wandb = createWandB()
     dataset = load_data()
     disc = Discriminator().to(cfg.device)
     gen = Generator().to(cfg.device)
-    opt_disc, opt_gen = training_loop(disc, gen, dataset)
+    opt_disc, opt_gen = training_loop(disc, gen, dataset,wandb)
     save_model(gen, disc, opt_gen, opt_disc, "last", "simple_gan_checkpoint.pth")
     
     real_images_dir = f"{cfg.RESULTS_DIR}/real_images_fid"
@@ -353,4 +369,9 @@ if __name__ == '__main__':
     generate_images_fid(last_model, generated_images_dir)
     fid_value = calc_fid_score(real_images_dir, generated_images_dir)
     print(f"FID score: {fid_value}")
-    uploadLogsAndMetricsToWandB(fid_value)
+    # writer.close()
+    uploadLogsAndMetricsToWandB(wandb)
+    # Log final metrics
+    wandb.log({"final_fid": fid_value})
+    wandb.finish()
+

@@ -117,12 +117,13 @@ def training_loop(disc, gen, dataset, wandb):
             gen.zero_grad()
             lossG.backward()
             opt_gen.step()
-            if batch_idx % 20 == 0:
-                # --- LOG LOSSES EVERY 20th BATCH ---
-                #writer.add_scalar("Loss/Discriminator", lossD.item(), global_step=step)
-                #writer.add_scalar("Loss/Generator", lossG.item(), global_step=step)
-                wandb.log({"Loss/Discriminator": lossD.item(), "Loss/Generator": lossG.item()}, step=step)
             step += 1 # Increment every batch for smooth loss curves
+        
+        # --- LOG LOSSES EVERY EPOCH ---
+        #writer.add_scalar("Loss/Discriminator", lossD.item(), global_step=epoch)
+        #writer.add_scalar("Loss/Generator", lossG.item(), global_step=epoch)
+        wandb.log({"Loss/Discriminator": lossD.item(), "Loss/Generator": lossG.item()}, step=epoch)
+            
 
         # --- VISUALS AT START OF EPOCH ---
         if epoch % 10 == 0:
@@ -130,7 +131,7 @@ def training_loop(disc, gen, dataset, wandb):
             log_tensorboard_visuals(wandb, gen, real_orig, fixed_noise, epoch)
 
         # --- FID CALCULATION AT END OF EPOCH ---
-        if epoch % cfg.fid_interval == 0 or epoch == cfg.num_epochs - 1:
+        if (epoch % cfg.fid_interval == 0) or (epoch == cfg.num_epochs - 1):
             save_model(gen, disc, opt_gen, opt_disc, epoch, filename="latest_gan.pth")
             current_fid = calculate_fid(gen, loader, fid_metric)
             fid_metric.reset()
@@ -356,19 +357,19 @@ if __name__ == '__main__':
     disc = Discriminator().to(cfg.device)
     gen = Generator().to(cfg.device)
     opt_disc, opt_gen = training_loop(disc, gen, dataset,wandb)
-    save_model(gen, disc, opt_gen, opt_disc, "last", "simple_gan_checkpoint.pth")
+    save_model(gen, disc, opt_gen, opt_disc, f"epoch:{cfg.num_epochs}", "simple_gan_checkpoint.pth")
     
     real_images_dir = f"{cfg.RESULTS_DIR}/real_images_fid"
     generated_images_dir = f"{cfg.RESULTS_DIR}/fake_images_fid"
     save_images_fid(dataset, real_images_dir)
-    last_model = reloadModel("simple_gan_checkpoint.pth")
+    best_model = reloadModel("best_gan.pth")
     #best_model = reloadModel("best_gan.pth")
-    generate_images_fid(last_model, generated_images_dir)
+    generate_images_fid(best_model, generated_images_dir)
     fid_value = calc_fid_score(real_images_dir, generated_images_dir)
     print(f"FID score: {fid_value}")
     # writer.close()
     uploadLogsAndMetricsToWandB(wandb)
     # Log final metrics
-    wandb.log({"final_fid": fid_value})
+    wandb.run.summary["final_fid"] = fid_value
     wandb.finish()
 

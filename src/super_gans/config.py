@@ -52,5 +52,5 @@ classify_num_epochs = 15
 classify_image_size = 224
 num_images_fid_sample = 2 * batch_size 
 num_images_fid_score = 5000
-fid_interval = 25
+fid_interval = 10
 fid_dims = 2048

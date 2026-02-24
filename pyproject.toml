@@ -1,0 +1,26 @@
+[project]
+name = "super-gans"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = [
+    "kagglehub>=0.3.13",
+    "numpy<2",
+    "pytorch-fid>=0.3.0",
+    "pyyaml>=6.0.3",
+    "tensorboard>=2.20.0",
+    "torch==2.2.2",
+    "torchvision==0.17.2",
+]
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.19.1",
+    "types-pyyaml>=6.0.12.20250915",
+]
+[tool.mypy]
+follow_imports = "silent"
+ignore_missing_imports = true
+disallow_untyped_calls = false

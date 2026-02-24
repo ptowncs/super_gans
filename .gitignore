@@ -24,7 +24,8 @@ data/
 *.npy
 
 # Models / outputs
-models/
+saved_models/
+results/
 outputs/
 logs/
 *.ckpt

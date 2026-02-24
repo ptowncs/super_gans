@@ -1,5 +1,0 @@
-kagglehub
-torch
-torchvision
-tensorboard
-pytorch-fid

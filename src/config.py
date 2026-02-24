@@ -14,9 +14,10 @@ print(PROJECT_PATH)
 os.chdir(PROJECT_PATH)
 print(DRIVE_PATH)
 
+timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 DATA_DIR = f"{DRIVE_PATH}/data"
-MODELS_DIR = f"{DRIVE_PATH}/saved_models"
-RESULTS_DIR = f"{DRIVE_PATH}/results"
+MODELS_DIR = f"{DRIVE_PATH}/saved_models/{timestamp}"
+RESULTS_DIR = f"{DRIVE_PATH}/results/{timestamp}"
 
 
 with open(f"{PROJECT_PATH}/config.yaml", 'r') as file:

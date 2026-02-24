@@ -16,6 +16,7 @@ from pytorch_fid import fid_score
 from torchmetrics.image.fid import FrechetInceptionDistance
 import wandb
 import gc
+import psutil, os, torch
 
 class Discriminator(nn.Module):
     def __init__(self):
@@ -78,14 +79,19 @@ def training_loop(disc, gen, dataset):
     opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr)
     criterion = nn.BCELoss()
     writer = SummaryWriter("logs/simple_gan_run_1")
-    loader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=True)
+    loader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=0, pin_memory=False)
     # 'step' tracks total batches seen (X-axis for loss charts)
     step = 0
     # feature=64 uses a lower layer of Inception; it's faster for monitoring
-    fid_metric = FrechetInceptionDistance(feature=cfg.fid_dims, normalize=True).to(cfg.device)
+    # Moving to CPU to avoid GPU contention with GANs
+    fid_metric = FrechetInceptionDistance(feature=cfg.fid_dims, normalize=True).to("cpu")
     best_fid = float('inf') # Initialize with infinity
     best_fid_epoch = 0
     for epoch in range(cfg.num_epochs):
+        process = psutil.Process(os.getpid())
+        print("RAM GB:", process.memory_info().rss / 1024**3)
+        print("GPU GB:", torch.cuda.memory_allocated() / 1024**3)
+        
         for batch_idx, (real_orig, _) in enumerate(loader):
             real = real_orig.view(-1, cfg.image_dim).to(cfg.device)
             batch_size = real.shape[0]
@@ -111,21 +117,22 @@ def training_loop(disc, gen, dataset):
             gen.zero_grad()
             lossG.backward()
             opt_gen.step()
-
-            # --- LOG LOSSES EVERY BATCH ---
-            writer.add_scalar("Loss/Discriminator", lossD.item(), global_step=step)
-            writer.add_scalar("Loss/Generator", lossG.item(), global_step=step)
+            if batch_idx % 20 == 0:
+                # --- LOG LOSSES EVERY 20th BATCH ---
+                writer.add_scalar("Loss/Discriminator", lossD.item(), global_step=step)
+                writer.add_scalar("Loss/Generator", lossG.item(), global_step=step)
             step += 1 # Increment every batch for smooth loss curves
 
-            # --- VISUALS AT START OF EPOCH ---
-            if batch_idx == 0:
-                print(f"Epoch [{epoch}/{cfg.num_epochs}] Loss D: {lossD.item():.4f}, Loss G: {lossG.item():.4f}")
-                log_tensorboard_visuals(writer, gen, real_orig, fixed_noise, epoch)
+        # --- VISUALS AT START OF EPOCH ---
+        if epoch % 10 == 0:
+            print(f"Epoch [{epoch}/{cfg.num_epochs}] Loss D: {lossD.item():.4f}, Loss G: {lossG.item():.4f}")
+            log_tensorboard_visuals(writer, gen, real_orig, fixed_noise, epoch)
 
         # --- FID CALCULATION AT END OF EPOCH ---
-        if epoch % cfg.fid_interval == 0 or epoch == cfg.num_epochs:
+        if epoch % cfg.fid_interval == 0 or epoch == cfg.num_epochs - 1:
             save_model(gen, disc, opt_gen, opt_disc, epoch, filename="latest_gan.pth")
             current_fid = calculate_fid(gen, loader, fid_metric)
+            fid_metric.reset()
             writer.add_scalar("Metrics/FID", current_fid, global_step=epoch)
             print(f"--- Epoch [{epoch}] FID Score: {current_fid:.4f} ---")
         
@@ -255,6 +262,7 @@ def calc_fid_score(real_images_dir, generated_images_dir):
     )
     return fid_value
 
+#Forcing the calculations to run on CPU to avoid GPU contention with GANs
 def calculate_fid(gen, loader, fid_metric):
     """
     Calculates FID score by comparing real images from the loader 
@@ -278,14 +286,15 @@ def calculate_fid(gen, loader, fid_metric):
                 data_iter = iter(loader)
                 real_batch, _ = next(data_iter)
                 
-            real_batch = real_batch[:batch_size].to(cfg.device)
+            real_batch = real_batch[:batch_size].to("cpu")
             # Convert [1, 64, 64] -> [3, 64, 64] and map [-1, 1] -> [0, 1]
             real_rgb = (real_batch.repeat(1, 3, 1, 1) + 1.0) / 2.0
             fid_metric.update(real_rgb, real=True)
 
             # --- 2. Process Fake Images ---
-            noise = torch.randn(batch_size, cfg.z_dim).to(cfg.device)
-            fake_batch = gen(noise).reshape(-1, cfg.num_channels, cfg.image_size, cfg.image_size)
+            # --- Fake Images ---
+            noise = torch.randn(batch_size, cfg.z_dim, device=cfg.device)
+            fake_batch = gen(noise).reshape(-1, cfg.num_channels, cfg.image_size, cfg.image_size).detach().cpu()
             # Convert [1, 64, 64] -> [3, 64, 64] and map [-1, 1] -> [0, 1]
             fake_rgb = (fake_batch.repeat(1, 3, 1, 1) + 1.0) / 2.0
             fid_metric.update(fake_rgb, real=False)

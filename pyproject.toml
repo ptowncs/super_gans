@@ -16,19 +16,21 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build]
-source-dir = "src"
-packages = ["super_gans"]        # include all python files under src/super_gans
-include-package-data = true      # include config.yaml
-
-[tool.hatch.build.targets.sdist]
-include = [
-    "super_gans/**"            # include all files under super_gans
-]
+# Force Hatchling to ignore .gitignore and untracked status
+ignore-vcs = true
 
 [tool.hatch.build.targets.wheel]
-include = [
-    "super_gans/**"            # include all files under super_gans
-]
+# Standard 2026 Hatchling 'src' layout configuration
+# This tells Hatchling that the files inside 'src' should be at the wheel root.
+sources = ["src"]
+
+# Explicitly select only your package folder to exclude notebooks/ etc.
+packages = ["src/super_gans"]
+
+[tool.hatch.build.targets.sdist]
+# Ensure sdist also includes all files without VCS filtering
+ignore-vcs = true
+include = ["src/super_gans"]
 
 [dependency-groups]
 dev = [

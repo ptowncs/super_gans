@@ -87,6 +87,8 @@ def training_loop(disc, gen, dataset, wandb):
     fid_metric = FrechetInceptionDistance(feature=cfg.fid_dims, normalize=True).to("cpu")
     best_fid = float('inf') # Initialize with infinity
     best_fid_epoch = 0
+    wandb.define_metric("epoch", hidden=True)
+    wandb.define_metric("*", step_metric="epoch")
     for epoch in range(cfg.num_epochs):
         process = psutil.Process(os.getpid())
         print(f"Epoch: {epoch} | RAM GB: {process.memory_info().rss / 1024**3:.2f} \
@@ -122,7 +124,7 @@ def training_loop(disc, gen, dataset, wandb):
         # --- LOG LOSSES EVERY EPOCH ---
         #writer.add_scalar("Loss/Discriminator", lossD.item(), global_step=epoch)
         #writer.add_scalar("Loss/Generator", lossG.item(), global_step=epoch)
-        wandb.log({"Loss/Discriminator": lossD.item(), "Loss/Generator": lossG.item()}, step=epoch)
+        wandb.log({"Loss/Discriminator": lossD.item(), "Loss/Generator": lossG.item(), "epoch": epoch}, commit=False)
             
 
         # --- VISUALS AT START OF EPOCH ---
@@ -144,7 +146,8 @@ def training_loop(disc, gen, dataset, wandb):
                 best_fid = current_fid
                 best_fid_epoch = epoch
                 save_model(gen, disc, opt_gen, opt_disc, epoch, filename="best_gan.pth")
-        
+        else:
+            wandb.log({}, commit=True)
         # End of Epoch cleanup
         #writer.flush()
         torch.cuda.empty_cache()
@@ -333,7 +336,7 @@ def log_tensorboard_visuals(wandb, gen, real_batch, fixed_noise, epoch):
         # --- Log to WandB ---
         wandb.log({"Generated Grid": wandb.Image(img_grid_fake, caption=f"epoch_{epoch:03d}"),
                    "Real Grid": wandb.Image(img_grid_real, caption=f"epoch_{epoch:03d}"),
-                   "epoch": epoch})
+                   "epoch": epoch}, commit=False)
     gen.train()
 
 def createWandB():

@@ -44,7 +44,7 @@ class Generator(nn.Module):
         super().__init__()
         # z_dim is size of noise vector , image_dim is total pixels in image
         self.gen = nn.Sequential(
-            nn.Linear(cfg.latent_dim, 256*8*8),
+            nn.Linear(cfg.z_dim, 256*8*8),
             nn.BatchNorm1d(256*8*8),
             nn.ReLU(True),
             nn.Unflatten(1, (256, 8, 8)),

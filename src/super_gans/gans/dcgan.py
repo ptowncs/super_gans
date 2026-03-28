@@ -178,7 +178,7 @@ def training_loop(disc, gen, dataset, wandb):
 
 def uploadLogsAndMetricsToWandB(wandb):
     # Upload model
-    artifact = wandb.Artifact("simple-gan-model", type="model")
+    artifact = wandb.Artifact("dc-gan-model", type="model")
     gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"
     file_path = f"{gan_checkpoints_dir}/best_gan.pth"
     artifact.add_file(file_path)
@@ -368,7 +368,7 @@ def createWandB():
     return wandb
 
 if __name__ == '__main__':
-    #writer = SummaryWriter("logs/simple_gan_run_1")
+    #writer = SummaryWriter("logs/dcgan_run_1")
     wandb = createWandB()
     dataset = load_data()
 
@@ -378,7 +378,7 @@ if __name__ == '__main__':
     #disc = Discriminator().to(cfg.device)
     #gen = Generator().to(cfg.device)
     opt_disc, opt_gen = training_loop(disc, gen, dataset,wandb)
-    save_model(gen, disc, opt_gen, opt_disc, f"epoch:{cfg.num_epochs}", "simple_gan_checkpoint.pth")
+    save_model(gen, disc, opt_gen, opt_disc, f"epoch:{cfg.num_epochs}", "dc_gan_checkpoint.pth")
     
     real_images_dir = f"{cfg.RESULTS_DIR}/real_images_fid"
     generated_images_dir = f"{cfg.RESULTS_DIR}/fake_images_fid"

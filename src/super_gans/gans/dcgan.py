@@ -44,7 +44,7 @@ class Generator(nn.Module):
         super().__init__()
         # z_dim is size of noise vector , image_dim is total pixels in image
         self.gen = nn.Sequential(
-            nn.Linear(latent_dim, 256*8*8),
+            nn.Linear(cfg.latent_dim, 256*8*8),
             nn.BatchNorm1d(256*8*8),
             nn.ReLU(True),
             nn.Unflatten(1, (256, 8, 8)),
@@ -373,8 +373,8 @@ if __name__ == '__main__':
     dataset = load_data()
 
 
-    gen = torch.optim.Adam(G.parameters(), lr=1e-4, betas=(0.0, 0.9))
-    disc = torch.optim.Adam(D.parameters(), lr=1e-4, betas=(0.0, 0.9))
+    gen = torch.optim.Adam(Generator().to(cfg.device).parameters(), lr=1e-4, betas=(0.0, 0.9))
+    disc = torch.optim.Adam(Discriminator().to(cfg.device).parameters(), lr=1e-4, betas=(0.0, 0.9))
     #disc = Discriminator().to(cfg.device)
     #gen = Generator().to(cfg.device)
     opt_disc, opt_gen = training_loop(disc, gen, dataset,wandb)

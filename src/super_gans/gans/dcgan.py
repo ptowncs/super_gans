@@ -353,7 +353,7 @@ def log_tensorboard_visuals(wandb, gen, real_batch, fixed_noise, epoch):
 def createWandB():
     wandb.init(
         project="super-gans-project",
-        name="gan_run_1",
+        name="dcgan_run_1",
         config={
             "epochs": cfg.num_epochs,
             "batch_size": cfg.batch_size,

@@ -61,9 +61,28 @@ class Generator(nn.Module):
     def forward(self, x):
         return self.gen(x)
 
+def load_data():
+    def is_valid_image(filename):
+        return not filename.startswith("._")  # skip hidden macOS files
 
-
-
+    transforms_pipeline = transforms.Compose(
+        [
+            transforms.Grayscale(
+                num_output_channels=cfg.num_channels
+            ),  # Force 1 channel
+            transforms.Resize((cfg.image_size, cfg.image_size)),
+            transforms.ToTensor(),  # image to tensor
+            transforms.Normalize((0.5,), (0.5,)),  # normalize images , [0,1] to [-1,1]
+        ]
+    )
+    dataset_path = get_dataset_path("paultimothymooney/chest-xray-pneumonia/versions/2")
+    chest_xray_ds =  f"{dataset_path}/chest_xray"
+    dataset = datasets.ImageFolder(
+        root=f"{chest_xray_ds}/train",
+        transform=transforms_pipeline,
+        is_valid_file=is_valid_image,
+    )
+    return dataset
 
 def training_loop(disc, gen, dataset, wandb):
     fixed_noise = torch.randn((cfg.batch_size, cfg.z_dim)).to(cfg.device)

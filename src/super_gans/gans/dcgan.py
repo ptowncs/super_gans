@@ -21,7 +21,6 @@ import psutil, os, torch
 class Discriminator(nn.Module):
     def __init__(self):
         super().__init__()
-        in_features = cfg.image_dim
         self.disc = nn.Sequential(
             nn.Conv2d(cfg.num_channels, 64, 4, 2, 1),
             nn.LeakyReLU(0.2, inplace=True),
@@ -107,7 +106,7 @@ def training_loop(disc, gen, dataset, wandb):
               | GPU GB: {torch.cuda.memory_allocated() / 1024**3:.2f}")
 
         for batch_idx, (real_orig, _) in enumerate(loader):
-            real = real_orig.view(-1, cfg.image_dim).to(cfg.device)
+            real = real_orig.to(cfg.device)
             batch_size = real.shape[0]
 
             ### Train Discriminator ###

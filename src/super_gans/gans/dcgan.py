@@ -23,7 +23,7 @@ class Discriminator(nn.Module):
         super().__init__()
         in_features = cfg.image_dim
         self.disc = nn.Sequential(
-            nn.Conv2d(3, 64, 4, 2, 1),
+            nn.Conv2d(cfg.num_channels, 64, 4, 2, 1),
             nn.LeakyReLU(0.2, inplace=True),
             nn.Conv2d(64, 128, 4, 2, 1),
             nn.BatchNorm2d(128),
@@ -54,7 +54,7 @@ class Generator(nn.Module):
             nn.ConvTranspose2d(128, 64, 4, 2, 1),
             nn.BatchNorm2d(64),
             nn.ReLU(True),
-            nn.ConvTranspose2d(64, 3, 4, 2, 1),
+            nn.ConvTranspose2d(64, cfg.num_channels, 4, 2, 1),
             nn.Tanh()
         )
 

@@ -370,8 +370,7 @@ if __name__ == '__main__':
     dataset = load_data()
 
 
-    #gen = torch.optim.Adam(Generator().to(cfg.device).parameters(), lr=1e-4, betas= cfg.betas)
-    #disc = torch.optim.Adam(Discriminator().to(cfg.device).parameters(), lr=1e-4, betas=cfg.betas)
+
 
     disc = Discriminator().to(cfg.device)
     gen = Generator().to(cfg.device)

@@ -375,7 +375,7 @@ if __name__ == '__main__':
 
     disc = Discriminator().to(cfg.device)
     gen = Generator().to(cfg.device)
-    
+
     opt_disc, opt_gen = training_loop(disc, gen, dataset,wandb)
     save_model(gen, disc, opt_gen, opt_disc, f"epoch:{cfg.num_epochs}", "dc_gan_checkpoint.pth")
     

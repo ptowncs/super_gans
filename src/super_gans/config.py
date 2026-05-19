@@ -41,16 +41,17 @@ print(config['repos']['dataset_handle'])
 # Hyperparameters etc.
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-lr = 2e-4
-z_dim = 64
-image_size = 64
+lr = 1e-4
+z_dim = 128
+image_size = 128
 num_channels = 1
 image_dim = image_size * image_size * num_channels
 batch_size = 64
-num_epochs = 300
+num_epochs = 2000
 classify_num_epochs = 15
 classify_image_size = 224
 num_images_fid_sample = 2 * batch_size 
 num_images_fid_score = 5000
 fid_interval = 10
 fid_dims = 2048
+betas = (0.5, 0.999)

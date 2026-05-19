@@ -86,8 +86,8 @@ def load_data():
 def training_loop(disc, gen, dataset, wandb):
     fixed_noise = torch.randn((cfg.batch_size, cfg.z_dim)).to(cfg.device)
 
-    opt_disc = optim.Adam(disc.parameters(), lr=cfg.lr)
-    opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr)
+    opt_disc = optim.Adam(disc.parameters(), lr=cfg.lr, betas = cfg.betas)
+    opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr,betas = cfg.betas)
     criterion = nn.BCEWithLogitsLoss()
     
     loader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=0, pin_memory=False)
@@ -370,10 +370,12 @@ if __name__ == '__main__':
     dataset = load_data()
 
 
-    gen = torch.optim.Adam(Generator().to(cfg.device).parameters(), lr=1e-4, betas=(0.0, 0.9))
-    disc = torch.optim.Adam(Discriminator().to(cfg.device).parameters(), lr=1e-4, betas=(0.0, 0.9))
-    #disc = Discriminator().to(cfg.device)
-    #gen = Generator().to(cfg.device)
+    #gen = torch.optim.Adam(Generator().to(cfg.device).parameters(), lr=1e-4, betas= cfg.betas)
+    #disc = torch.optim.Adam(Discriminator().to(cfg.device).parameters(), lr=1e-4, betas=cfg.betas)
+
+    disc = Discriminator().to(cfg.device)
+    gen = Generator().to(cfg.device)
+    
     opt_disc, opt_gen = training_loop(disc, gen, dataset,wandb)
     save_model(gen, disc, opt_gen, opt_disc, f"epoch:{cfg.num_epochs}", "dc_gan_checkpoint.pth")
     

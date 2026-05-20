@@ -124,13 +124,15 @@ def training_loop(disc, gen, dataset, wandb):
             opt_disc.step()
 
             ### Train Generator ###
+            noise = torch.randn(batch_size, cfg.z_dim, device=cfg.device)
+            fake = gen(noise)
+
             output = disc(fake).view(-1)
             lossG = criterion(output, torch.ones_like(output))
-            
-            gen.zero_grad()
+
+            opt_gen.zero_grad(set_to_none=True)
             lossG.backward()
             opt_gen.step()
-            step += 1 # Increment every batch for smooth loss curves
         
         # --- LOG LOSSES EVERY EPOCH ---
         #writer.add_scalar("Loss/Discriminator", lossD.item(), global_step=epoch)
@@ -368,7 +370,6 @@ if __name__ == '__main__':
     #writer = SummaryWriter("logs/dcgan_run_1")
     wandb = createWandB()
     dataset = load_data()
-
 
 
 

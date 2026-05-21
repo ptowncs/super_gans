@@ -90,12 +90,13 @@ def training_loop(disc, gen, dataset, wandb):
     opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr,betas = cfg.betas)
     criterion = nn.BCEWithLogitsLoss()
     
-    loader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=0, pin_memory=False)
+    loader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=2, pin_memory=True)
     # 'step' tracks total batches seen (X-axis for loss charts)
     step = 0
     # feature=64 uses a lower layer of Inception; it's faster for monitoring
     # Moving to CPU to avoid GPU contention with GANs
     fid_metric = FrechetInceptionDistance(feature=cfg.fid_dims, normalize=True).to("cpu")
+    
     best_fid = float('inf') # Initialize with infinity
     best_fid_epoch = 0
     wandb.define_metric("epoch", hidden=True)
@@ -300,7 +301,7 @@ def calculate_fid(gen, loader, fid_metric):
                 data_iter = iter(loader)
                 real_batch, _ = next(data_iter)
                 
-            real_batch = real_batch[:batch_size].to("cpu")
+            real_batch = real_batch[:batch_size].cpu()
             # Convert [1, 64, 64] -> [3, 64, 64] and map [-1, 1] -> [0, 1]
             real_rgb = (real_batch.repeat(1, 3, 1, 1) + 1.0) / 2.0
             fid_metric.update(real_rgb, real=True)
@@ -373,10 +374,7 @@ if __name__ == '__main__':
 
     disc = Discriminator().to(cfg.device)
     gen = Generator().to(cfg.device)
-
-    disc = Discriminator().to(cfg.device)
-    gen = Generator().to(cfg.device)
-    torch.backends.cudnn.enabled = False
+    
 
     opt_disc, opt_gen = training_loop(disc, gen, dataset,wandb)
     save_model(gen, disc, opt_gen, opt_disc, f"epoch:{cfg.num_epochs}", "dc_gan_checkpoint.pth")

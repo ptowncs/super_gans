@@ -31,7 +31,7 @@ class Discriminator(nn.Module):
             nn.BatchNorm2d(256),
             nn.LeakyReLU(0.2, inplace=True),
             nn.Flatten(),
-            nn.Linear(256*8*8, 1)
+            nn.Linear(256*16*16, 1)
         )
 
     def forward(self, x):
@@ -43,23 +43,31 @@ class Generator(nn.Module):
         super().__init__()
         # z_dim is size of noise vector , image_dim is total pixels in image
         self.gen = nn.Sequential(
-            nn.Linear(cfg.z_dim, 256*8*8),
-            nn.BatchNorm1d(256*8*8),
+            nn.Linear(cfg.z_dim, 256 * 8 * 8),
+            nn.BatchNorm1d(256 * 8 * 8),
             nn.ReLU(True),
+
             nn.Unflatten(1, (256, 8, 8)),
-            nn.ConvTranspose2d(256, 128, 4, 2, 1),
+
+            nn.ConvTranspose2d(256, 128, 4, 2, 1),  # 16
             nn.BatchNorm2d(128),
             nn.ReLU(True),
-            nn.ConvTranspose2d(128, 64, 4, 2, 1),
+
+            nn.ConvTranspose2d(128, 64, 4, 2, 1),   # 32
             nn.BatchNorm2d(64),
             nn.ReLU(True),
-            nn.ConvTranspose2d(64, cfg.num_channels, 4, 2, 1),
+
+            nn.ConvTranspose2d(64, 32, 4, 2, 1),    # 64
+            nn.BatchNorm2d(32),
+            nn.ReLU(True),
+
+            nn.ConvTranspose2d(32, cfg.num_channels, 4, 2, 1),  # 128
             nn.Tanh()
         )
 
     def forward(self, x):
         return self.gen(x)
-
+        
 def load_data():
     def is_valid_image(filename):
         return not filename.startswith("._")  # skip hidden macOS files
@@ -374,7 +382,7 @@ if __name__ == '__main__':
 
     disc = Discriminator().to(cfg.device)
     gen = Generator().to(cfg.device)
-    
+
 
     opt_disc, opt_gen = training_loop(disc, gen, dataset,wandb)
     save_model(gen, disc, opt_gen, opt_disc, f"epoch:{cfg.num_epochs}", "dc_gan_checkpoint.pth")

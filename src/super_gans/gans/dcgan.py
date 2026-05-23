@@ -311,7 +311,9 @@ def calculate_fid(gen, loader, fid_metric):
                 
             real_batch = real_batch[:batch_size].cpu()
             # Convert [1, 64, 64] -> [3, 64, 64] and map [-1, 1] -> [0, 1]
-            real_rgb = (real_batch.repeat(1, 3, 1, 1) + 1.0) / 2.0
+            #real_rgb = (real_batch.expand(1, 3, 1, 1) + 1.0) / 2.0
+
+            real_rgb = ((real_batch.expand(-1, 3, -1, -1)) + 1.0) / 2.0
             fid_metric.update(real_rgb, real=True)
 
             # --- 2. Process Fake Images ---
@@ -319,7 +321,9 @@ def calculate_fid(gen, loader, fid_metric):
             noise = torch.randn(batch_size, cfg.z_dim, device=cfg.device)
             fake_batch = gen(noise).reshape(-1, cfg.num_channels, cfg.image_size, cfg.image_size).detach().cpu()
             # Convert [1, 64, 64] -> [3, 64, 64] and map [-1, 1] -> [0, 1]
-            fake_rgb = (fake_batch.repeat(1, 3, 1, 1) + 1.0) / 2.0
+            #fake_rgb = (fake_batch.repeat(1, 3, 1, 1) + 1.0) / 2.0
+
+            fake_rgb = ((fake_batch.expand(-1, 3, -1, -1)) + 1.0) / 2.0
             fid_metric.update(fake_rgb, real=False)
 
     # --- 3. Compute and Log ---
@@ -342,8 +346,12 @@ def log_tensorboard_visuals(wandb, gen, real_batch, fixed_noise, epoch):
 
         # 3. Convert both from 1-channel to 3-channel (RGB)
         # This is necessary so the grid looks consistent in all viewers
-        fake_rgb = fake.repeat(1, 3, 1, 1)
-        real_rgb = real.repeat(1, 3, 1, 1)
+        
+        #fake_rgb = fake.repeat(1, 3, 1, 1)
+        #real_rgb = real.repeat(1, 3, 1, 1)
+
+        fake_rgb = fake.expand(-1, 3, -1, -1)
+        real_rgb = real.expand(-1, 3, -1, -1)
 
         # 4. Create grids using Torchvision's built-in normalization
         # normalize=True: shifts the range to [0, 1]

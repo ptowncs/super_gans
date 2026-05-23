@@ -19,19 +19,26 @@ import gc
 import psutil, os, torch
 
 class Discriminator(nn.Module):
+    '''
+    Discriminator: increases the number of channels(features) while downsampling the spatial dimensions to half
+    Skips every other pixel and looks at window of 4 x 4 to create 1 pixel
+    '''
     def __init__(self):
         super().__init__()
         self.disc = nn.Sequential(
-            nn.Conv2d(cfg.num_channels, 64, 4, 2, 1),
+            nn.Conv2d(cfg.num_channels, 32, 4, 2, 1), # num_channels , 128x128 -> 32, 64 x 64
             nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(64, 128, 4, 2, 1),
+            nn.Conv2d(32, 64, 4, 2, 1), # 32, 64 x 64 -> 64,  32 x 32
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(64, 128, 4, 2, 1), # 64,  32 x 32 -> 128, 16 x 16
             nn.BatchNorm2d(128),
             nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(128, 256, 4, 2, 1),
+            nn.Conv2d(128, 256, 4, 2, 1), #128, 16 x 16 -> 256, 8 x 8 
             nn.BatchNorm2d(256),
             nn.LeakyReLU(0.2, inplace=True),
             nn.Flatten(),
-            nn.Linear(256*16*16, 1)
+            nn.Linear(256 * 8 * 8, 1)
         )
 
     def forward(self, x):
@@ -39,6 +46,10 @@ class Discriminator(nn.Module):
 
 
 class Generator(nn.Module):
+    '''
+    Generator: decreases the number of features to num_channels while upsampling spatial dimensions by doubling. 
+    It first inserts 0s in alternate rows and columns and skips 1 pixel to double the image size
+    '''
     def __init__(self):
         super().__init__()
         # z_dim is size of noise vector , image_dim is total pixels in image
@@ -102,8 +113,7 @@ def training_loop(disc, gen, dataset, wandb):
     # 'step' tracks total batches seen (X-axis for loss charts)
     step = 0
     # feature=64 uses a lower layer of Inception; it's faster for monitoring
-    # Moving to CPU to avoid GPU contention with GANs
-    fid_metric = FrechetInceptionDistance(feature=cfg.fid_dims, normalize=True).to("cpu")
+    fid_metric = FrechetInceptionDistance(feature=cfg.fid_dims, normalize=True).to(cfg.device)
     
     best_fid = float('inf') # Initialize with infinity
     best_fid_epoch = 0
@@ -119,27 +129,23 @@ def training_loop(disc, gen, dataset, wandb):
             batch_size = real.shape[0]
 
             ### Train Discriminator ###
+            
+            disc.zero_grad(set_to_none=True)
+
             noise = torch.randn(batch_size, cfg.z_dim).to(cfg.device)
             fake = gen(noise)
             disc_real = disc(real).view(-1)
             lossD_real = criterion(disc_real, torch.ones_like(disc_real))
-            disc_fake = disc(fake.detach()).view(-1)
-            lossD_fake = criterion(disc_fake, torch.zeros_like(disc_fake))
+            disc_fake = disc(fake).view(-1)
+            lossD_fake = criterion(disc_fake.detach(), torch.zeros_like(disc_fake))
             lossD = (lossD_real + lossD_fake) / 2
 
             # Backpropagation
-            disc.zero_grad()
             lossD.backward()
             opt_disc.step()
 
-            ### Train Generator ###
-            noise = torch.randn(batch_size, cfg.z_dim, device=cfg.device)
-            fake = gen(noise)
-
-            output = disc(fake).view(-1)
-            lossG = criterion(output, torch.ones_like(output))
-
             opt_gen.zero_grad(set_to_none=True)
+            lossG = criterion(disc_fake, torch.ones_like(disc_fake)) 
             lossG.backward()
             opt_gen.step()
         
@@ -276,17 +282,15 @@ def calc_fid_score(real_images_dir, generated_images_dir):
         raise ValueError(f"Generated image path not found: {generated_images_dir}")
 
     # (Make sure to populate `real_images` with your actual dataset)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
     # Calculate FID
     fid_value = fid_score.calculate_fid_given_paths(
         [real_images_dir, generated_images_dir],
         batch_size=50,  # Adjust batch size based on available GPU memory
-        device=device,
+        device = cfg.device,
         dims= cfg.fid_dims,  # Inception v3 output dimension
     )
     return fid_value
 
-#Forcing the calculations to run on CPU to avoid GPU contention with GANs
 def calculate_fid(gen, loader, fid_metric):
     """
     Calculates FID score by comparing real images from the loader 
@@ -300,6 +304,10 @@ def calculate_fid(gen, loader, fid_metric):
     batch_size = cfg.batch_size
     n_batches = cfg.num_images_fid_sample // batch_size
     data_iter = iter(loader)
+
+    # Ensure the metric is on the correct device
+    fid_metric = fid_metric.to(cfg.device)
+    
     with torch.inference_mode():
         for _ in range(n_batches):
             # --- 1. Process Real Images ---
@@ -309,26 +317,27 @@ def calculate_fid(gen, loader, fid_metric):
                 data_iter = iter(loader)
                 real_batch, _ = next(data_iter)
                 
-            real_batch = real_batch[:batch_size].cpu()
-            # Convert [1, 64, 64] -> [3, 64, 64] and map [-1, 1] -> [0, 1]
-            #real_rgb = (real_batch.expand(1, 3, 1, 1) + 1.0) / 2.0
+            real_batch = real_batch[:batch_size].to(cfg.device)
+           
+            # Map [-1, 1] -> [0, 1] and expand grayscale to 3 channels
+            real_rgb = (real_batch.expand(-1, 3, -1, -1) + 1.0) / 2.0
 
-            real_rgb = ((real_batch.expand(-1, 3, -1, -1)) + 1.0) / 2.0
             fid_metric.update(real_rgb, real=True)
 
             # --- 2. Process Fake Images ---
             # --- Fake Images ---
             noise = torch.randn(batch_size, cfg.z_dim, device=cfg.device)
-            fake_batch = gen(noise).reshape(-1, cfg.num_channels, cfg.image_size, cfg.image_size).detach().cpu()
-            # Convert [1, 64, 64] -> [3, 64, 64] and map [-1, 1] -> [0, 1]
-            #fake_rgb = (fake_batch.repeat(1, 3, 1, 1) + 1.0) / 2.0
-
-            fake_rgb = ((fake_batch.expand(-1, 3, -1, -1)) + 1.0) / 2.0
+            fake_batch = gen(noise)
+            fake_rgb = (fake_batch.expand(-1, 3, -1, -1) + 1.0) / 2.0
+            
             fid_metric.update(fake_rgb, real=False)
 
     # --- 3. Compute and Log ---
     fid_score = fid_metric.compute().item()
-        
+
+    if cfg.device.type == 'cuda':
+        torch.cuda.empty_cache()
+
     gen.train()
     return fid_score
 
@@ -346,7 +355,7 @@ def log_tensorboard_visuals(wandb, gen, real_batch, fixed_noise, epoch):
 
         # 3. Convert both from 1-channel to 3-channel (RGB)
         # This is necessary so the grid looks consistent in all viewers
-        
+
         #fake_rgb = fake.repeat(1, 3, 1, 1)
         #real_rgb = real.repeat(1, 3, 1, 1)
 

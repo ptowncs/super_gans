@@ -90,7 +90,7 @@ def training_loop(disc, gen, dataset, wandb):
 
             ### Train Generator ###
             gen.zero_grad(set_to_none=True)
-            lossG = criterion(disc_fake, torch.ones_like(output))
+            lossG = criterion(disc_fake, torch.ones_like(disc_fake))
             lossG.backward()
             opt_gen.step()
             step += 1 # Increment every batch for smooth loss curves

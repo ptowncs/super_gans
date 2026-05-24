@@ -181,7 +181,7 @@ def calculate_fid_sample(gen, loader, fid_metric):
     # --- 3. Compute and Log ---
     fid_score = fid_metric.compute().item()
 
-    if cfg.device.type == 'cuda':
+    if cfg.device == 'cuda':
         torch.cuda.empty_cache()
 
     gen.train()

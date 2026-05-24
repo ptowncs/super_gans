@@ -108,22 +108,24 @@ def training_loop(disc, gen, dataset, wandb):
             ### Train Discriminator ###
             
             disc.zero_grad(set_to_none=True)
+            opt_gen.zero_grad(set_to_none=True)
 
             noise = torch.randn(batch_size, cfg.z_dim).to(cfg.device)
             fake = gen(noise)
             disc_real = disc(real).view(-1)
-            lossD_real = criterion(disc_real, torch.ones_like(disc_real))
             disc_fake = disc(fake).view(-1)
+            
+            lossD_real = criterion(disc_real, torch.ones_like(disc_real))
             lossD_fake = criterion(disc_fake.detach(), torch.zeros_like(disc_fake))
             lossD = (lossD_real + lossD_fake) / 2
-
-            # Backpropagation
-            lossD.backward()
-            opt_disc.step()
-
-            opt_gen.zero_grad(set_to_none=True)
             lossG = criterion(disc_fake, torch.ones_like(disc_fake)) 
+            
+            # Backpropagation
+            # Backward Pass for Discriminator (use retain_graph=True so lossG can reuse the graph)
+            lossD.backward(retain_graph=True)
             lossG.backward()
+
+            opt_disc.step()
             opt_gen.step()
         
         # --- LOG LOSSES EVERY EPOCH ---

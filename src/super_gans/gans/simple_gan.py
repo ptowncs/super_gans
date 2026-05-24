@@ -76,23 +76,25 @@ def training_loop(disc, gen, dataset, wandb):
 
             ### Train Discriminator ###
             disc.zero_grad(set_to_none=True)
+            gen.zero_grad(set_to_none=True)
+            
             noise = torch.randn(batch_size, cfg.z_dim).to(cfg.device)
             fake = gen(noise)
             disc_real = disc(real).view(-1)
-            lossD_real = criterion(disc_real, torch.ones_like(disc_real))
             disc_fake = disc(fake).view(-1)
+            
+            lossD_real = criterion(disc_real, torch.ones_like(disc_real))
             lossD_fake = criterion(disc_fake.detach(), torch.zeros_like(disc_fake))
             lossD = (lossD_real + lossD_fake) / 2
+            lossG = criterion(disc_fake, torch.ones_like(disc_fake))
 
             # Backpropagation
-            lossD.backward()
-            opt_disc.step()
-
-            ### Train Generator ###
-            gen.zero_grad(set_to_none=True)
-            lossG = criterion(disc_fake, torch.ones_like(disc_fake))
+            lossD.backward(retain_graph = True)
             lossG.backward()
+
+            opt_disc.step()
             opt_gen.step()
+
             step += 1 # Increment every batch for smooth loss curves
         
         # --- LOG LOSSES EVERY EPOCH ---

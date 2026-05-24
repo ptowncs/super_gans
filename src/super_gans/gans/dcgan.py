@@ -10,7 +10,7 @@ import torchvision.transforms as transforms
 from torch.utils.data import RandomSampler
 from PIL import Image  # Import PIL Image
 import super_gans.config as cfg
-from super_gans.utils import get_dataset_path
+from super_gans import utils
 from torchvision.utils import *
 from pytorch_fid import fid_score
 from torchmetrics.image.fid import FrechetInceptionDistance
@@ -79,29 +79,6 @@ class Generator(nn.Module):
     def forward(self, x):
         return self.gen(x)
         
-def load_data():
-    def is_valid_image(filename):
-        return not filename.startswith("._")  # skip hidden macOS files
-
-    transforms_pipeline = transforms.Compose(
-        [
-            transforms.Grayscale(
-                num_output_channels=cfg.num_channels
-            ),  # Force 1 channel
-            transforms.Resize((cfg.image_size, cfg.image_size)),
-            transforms.ToTensor(),  # image to tensor
-            transforms.Normalize((0.5,), (0.5,)),  # normalize images , [0,1] to [-1,1]
-        ]
-    )
-    dataset_path = get_dataset_path("paultimothymooney/chest-xray-pneumonia/versions/2")
-    chest_xray_ds =  f"{dataset_path}/chest_xray"
-    dataset = datasets.ImageFolder(
-        root=f"{chest_xray_ds}/train",
-        transform=transforms_pipeline,
-        is_valid_file=is_valid_image,
-    )
-    return dataset
-
 def training_loop(disc, gen, dataset, wandb):
     fixed_noise = torch.randn((cfg.batch_size, cfg.z_dim)).to(cfg.device)
 
@@ -163,7 +140,7 @@ def training_loop(disc, gen, dataset, wandb):
         # --- FID CALCULATION AT END OF EPOCH ---
         if (epoch % cfg.fid_interval == 0) or (epoch == cfg.num_epochs - 1):
             save_model(gen, disc, opt_gen, opt_disc, epoch, filename="latest_gan.pth")
-            current_fid = calculate_fid(gen, loader, fid_metric)
+            current_fid = utils.calculate_fid_sample(gen, loader, fid_metric)
             fid_metric.reset()
             #writer.add_scalar("Metrics/FID", current_fid, global_step=epoch)
             wandb.log({"Metrics/FID": current_fid}, step=epoch)
@@ -231,116 +208,6 @@ def reloadModel(filename="best_gan.pth"): # Default to the best one
     generator.eval()
     return generator
 
-def save_images_fid(dataset, to_dir):
-    os.makedirs(to_dir, exist_ok=True)
-    for i in range(min(cfg.num_images_fid_score, len(dataset))):
-        image, _ = dataset[i]  # image is a tensor in shape (1, 64, 64)
-
-        # Convert grayscale -> RGB by repeating channels
-        image_rgb = image.repeat(3, 1, 1)
-        filename = os.path.join(to_dir, f"pneumonia_{i:04d}.png")
-        # Generator uses Tanh (outputting [-1, 1]), ensure normalize=True and value_range=(-1, 1) 
-        # so the PNGs are stored as standard [0, 255] pixel values correctly.
-        save_image(image_rgb, filename, normalize=True, value_range=(-1, 1))
-
-    print(
-        f"Saved {min(cfg.num_images_fid_score, len(dataset))} real Pneumonia images to {to_dir}/"
-    )
-
-def generate_images_fid(generator, generated_images_dir):
-    # Generate random noise vectors
-    gen_noise = torch.randn(cfg.num_images_fid_score, cfg.z_dim).to(cfg.device)
-
-    # Generate images
-    with torch.inference_mode():
-        generated_images = generator(gen_noise).reshape(
-            -1, cfg.num_channels, cfg.image_size, cfg.image_size
-        )  # Reshape for saving/display
-
-    os.makedirs(generated_images_dir, exist_ok=True)
-
-    # Iterate through the batch and save each image separately
-    for i, image in enumerate(generated_images):
-        # Convert Grayscale -> RGB to match the real images directory
-        image_rgb = image.repeat(3, 1, 1)
-        filename = os.path.join(generated_images_dir, f"generated_image_{i:04d}.png")
-
-        # Save the individual image (image tensor has shape (channels, height, width))
-        save_image(image_rgb, filename, normalize=True, value_range=(-1, 1))
-
-    print(
-        f"{cfg.num_images_fid_score} individual images saved to {generated_images_dir}/"
-    )
-
-
-def calc_fid_score(real_images_dir, generated_images_dir):
-    # Paths to your image directories
-    print(f"Path being checked:{repr(real_images_dir)}")
-    if not os.path.exists(real_images_dir):
-        raise ValueError(f"Real image path not found: {real_images_dir}")
-    if not os.path.exists(generated_images_dir):
-        raise ValueError(f"Generated image path not found: {generated_images_dir}")
-
-    # (Make sure to populate `real_images` with your actual dataset)
-    # Calculate FID
-    fid_value = fid_score.calculate_fid_given_paths(
-        [real_images_dir, generated_images_dir],
-        batch_size=50,  # Adjust batch size based on available GPU memory
-        device = cfg.device,
-        dims= cfg.fid_dims,  # Inception v3 output dimension
-    )
-    return fid_value
-
-def calculate_fid(gen, loader, fid_metric):
-    """
-    Calculates FID score by comparing real images from the loader 
-    with generated images from the generator.
-    """
-    gen.eval()
-    fid_metric.reset()
-    
-    # Calculate how many batches we need to reach num_samples
-    assert cfg.num_images_fid_sample % cfg.batch_size == 0, "FID sample count must be divisible by batch size"
-    batch_size = cfg.batch_size
-    n_batches = cfg.num_images_fid_sample // batch_size
-    data_iter = iter(loader)
-
-    # Ensure the metric is on the correct device
-    fid_metric = fid_metric.to(cfg.device)
-    
-    with torch.inference_mode():
-        for _ in range(n_batches):
-            # --- 1. Process Real Images ---
-            try:
-                real_batch, _ = next(data_iter)
-            except StopIteration:
-                data_iter = iter(loader)
-                real_batch, _ = next(data_iter)
-                
-            real_batch = real_batch[:batch_size].to(cfg.device)
-           
-            # Map [-1, 1] -> [0, 1] and expand grayscale to 3 channels
-            real_rgb = (real_batch.expand(-1, 3, -1, -1) + 1.0) / 2.0
-
-            fid_metric.update(real_rgb, real=True)
-
-            # --- 2. Process Fake Images ---
-            # --- Fake Images ---
-            noise = torch.randn(batch_size, cfg.z_dim, device=cfg.device)
-            fake_batch = gen(noise)
-            fake_rgb = (fake_batch.expand(-1, 3, -1, -1) + 1.0) / 2.0
-            
-            fid_metric.update(fake_rgb, real=False)
-
-    # --- 3. Compute and Log ---
-    fid_score = fid_metric.compute().item()
-
-    if cfg.device.type == 'cuda':
-        torch.cuda.empty_cache()
-
-    gen.train()
-    return fid_score
-
 def log_tensorboard_visuals(wandb, gen, real_batch, fixed_noise, epoch):
     """
     Captures the current state of generation vs real images.
@@ -395,22 +262,22 @@ def createWandB():
 if __name__ == '__main__':
     #writer = SummaryWriter("logs/dcgan_run_1")
     wandb = createWandB()
-    dataset = load_data()
+    train_dataset = utils.load_data()
 
     disc = Discriminator().to(cfg.device)
     gen = Generator().to(cfg.device)
 
 
-    opt_disc, opt_gen = training_loop(disc, gen, dataset,wandb)
+    opt_disc, opt_gen = training_loop(disc, gen, train_dataset,wandb)
     save_model(gen, disc, opt_gen, opt_disc, f"epoch:{cfg.num_epochs}", "dc_gan_checkpoint.pth")
     
     real_images_dir = f"{cfg.RESULTS_DIR}/real_images_fid"
     generated_images_dir = f"{cfg.RESULTS_DIR}/fake_images_fid"
-    save_images_fid(dataset, real_images_dir)
+    fid_dataset = utils.build_fid_evaluation_dataset(cfg.num_images_fid_score)
+    utils.save_images_fid(fid_dataset, real_images_dir)
     best_model = reloadModel("best_gan.pth")
-    #best_model = reloadModel("best_gan.pth")
-    generate_images_fid(best_model, generated_images_dir)
-    fid_value = calc_fid_score(real_images_dir, generated_images_dir)
+    utils.generate_images_fid(best_model, generated_images_dir)
+    fid_value = utils.calc_fid_score(real_images_dir, generated_images_dir)
     print(f"FID score: {fid_value}")
     # writer.close()
     uploadLogsAndMetricsToWandB(wandb)

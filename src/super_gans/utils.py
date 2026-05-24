@@ -166,7 +166,7 @@ def calculate_fid_sample(gen, loader, fid_metric):
             real_batch = real_batch[:batch_size].to(cfg.device)
            
             # Map [-1, 1] -> [0, 1] and expand grayscale to 3 channels
-            real_rgb = (real_batch.expand(-1, 3, -1, -1) + 1.0) / 2.0
+            real_rgb = (real_batch.expand(batch_size, 3, -1, -1) + 1.0) / 2.0
 
             fid_metric.update(real_rgb, real=True)
 
@@ -174,7 +174,7 @@ def calculate_fid_sample(gen, loader, fid_metric):
             # --- Fake Images ---
             noise = torch.randn(batch_size, cfg.z_dim, device=cfg.device)
             fake_batch = gen(noise)
-            fake_rgb = (fake_batch.expand(-1, 3, -1, -1) + 1.0) / 2.0
+            fake_rgb = (fake_batch.expand(batch_size, 3, -1, -1) + 1.0) / 2.0
             
             fid_metric.update(fake_rgb, real=False)
 

@@ -109,7 +109,7 @@ def training_loop(disc, gen, dataset, wandb):
         # --- FID CALCULATION AT END OF EPOCH ---
         if (epoch % cfg.fid_interval == 0) or (epoch == cfg.num_epochs - 1):
             save_model(gen, disc, opt_gen, opt_disc, epoch, filename="latest_gan.pth")
-            current_fid = utils.calculate_fid(gen, loader, fid_metric)
+            current_fid = utils.calculate_fid_sample(gen, loader, fid_metric)
             fid_metric.reset()
             #writer.add_scalar("Metrics/FID", current_fid, global_step=epoch)
             wandb.log({"Metrics/FID": current_fid}, step=epoch)

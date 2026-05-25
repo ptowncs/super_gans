@@ -79,7 +79,7 @@ class Generator(nn.Module):
     def forward(self, x):
         return self.gen(x)
         
-def training_loop(disc, gen, opt_disc, opt_gen, dataset, wandb, start_epoch = 0, best_fid = float('inf'), best_fid_epoch = 0):
+def training_loop(disc, gen, opt_disc, opt_gen, dataset, wandb, start_epoch=0, best_fid=float('inf'), best_fid_epoch=0):
     fixed_noise = torch.randn((cfg.batch_size, cfg.z_dim)).to(cfg.device)
 
     criterion = nn.BCEWithLogitsLoss()
@@ -88,8 +88,10 @@ def training_loop(disc, gen, opt_disc, opt_gen, dataset, wandb, start_epoch = 0,
     # feature=64 uses a lower layer of Inception; it's faster for monitoring
     fid_metric = FrechetInceptionDistance(feature=cfg.fid_dims, normalize=True).to(cfg.device)
     
+    # Define master timeline metric
     wandb.define_metric("epoch", hidden=True)
     wandb.define_metric("*", step_metric="epoch")
+    
     for epoch in range(start_epoch, cfg.num_epochs):
         process = psutil.Process(os.getpid())
         print(f"Epoch: {epoch} | RAM GB: {process.memory_info().rss / 1024**3:.2f} \
@@ -106,7 +108,6 @@ def training_loop(disc, gen, opt_disc, opt_gen, dataset, wandb, start_epoch = 0,
             disc_real = disc(real).view(-1)
             
             # Apply One-Sided Label Smoothing to keep gradients healthy
-            #lossD_real = criterion(disc_real, torch.ones_like(disc_real))
             lossD_real = criterion(disc_real, torch.ones_like(disc_real) * 0.9)
             
             # Pass 2: Discriminator updates on Fake Images
@@ -117,7 +118,7 @@ def training_loop(disc, gen, opt_disc, opt_gen, dataset, wandb, start_epoch = 0,
             lossD_fake = criterion(disc_fake, torch.zeros_like(disc_fake))
             
             lossD = (lossD_real + lossD_fake) / 2
-            lossD.backward() # NO retain_graph needed anymore!
+            lossD.backward() 
             opt_disc.step()
 
             ### Train Generator ###
@@ -131,11 +132,9 @@ def training_loop(disc, gen, opt_disc, opt_gen, dataset, wandb, start_epoch = 0,
             opt_gen.step()
         
         # --- LOG LOSSES EVERY EPOCH ---
-        #writer.add_scalar("Loss/Discriminator", lossD.item(), global_step=epoch)
-        #writer.add_scalar("Loss/Generator", lossG.item(), global_step=epoch)
+        # Staging loss data. commit=False ensures we wait to push until the end of the epoch.
         wandb.log({"Loss/Discriminator": lossD.item(), "Loss/Generator": lossG.item(), "epoch": epoch}, commit=False)
             
-
         # --- VISUALS AT START OF EPOCH ---
         if epoch % 10 == 0:
             print(f"Epoch [{epoch}/{cfg.num_epochs}] Loss D: {lossD.item():.4f}, Loss G: {lossG.item():.4f}")
@@ -146,8 +145,9 @@ def training_loop(disc, gen, opt_disc, opt_gen, dataset, wandb, start_epoch = 0,
             save_model(gen, disc, opt_gen, opt_disc, epoch, filename="latest_gan.pth")
             current_fid = utils.calculate_fid_sample(gen, loader, fid_metric)
             fid_metric.reset()
-            #writer.add_scalar("Metrics/FID", current_fid, global_step=epoch)
-            wandb.log({"Metrics/FID": current_fid}, step=epoch)
+            
+            # VERIFIED FIX: Bundle 'epoch' into the dictionary and commit the full row to WandB
+            wandb.log({"Metrics/FID": current_fid, "epoch": epoch}, commit=True)
             print(f"--- Epoch [{epoch}] FID Score: {current_fid:.4f} ---")
         
             # Checkpoint: Save as 'best' if quality improved
@@ -156,20 +156,19 @@ def training_loop(disc, gen, opt_disc, opt_gen, dataset, wandb, start_epoch = 0,
                 best_fid_epoch = epoch
                 save_model(gen, disc, opt_gen, opt_disc, epoch, filename="best_gan.pth")
         else:
-            wandb.log({}, commit=True)
+            # VERIFIED FIX: Commits the losses and moves the custom timeline forward on non-FID epochs
+            wandb.log({"epoch": epoch}, commit=True)
+            
         # End of Epoch cleanup
-        #writer.flush()
         torch.cuda.empty_cache()
         gc.collect()
         
-    
-    #writer.add_text('Final Results', f'Best FID Epoch: {best_fid_epoch}, Best FID Sample Score: {best_fid}')
+    # --- FINAL RUN SUMMARY ---
     wandb.summary["Best FID Epoch"] = best_fid_epoch
     wandb.summary["Best FID Score"] = best_fid
-    #writer.flush()
-    
     
     return opt_disc, opt_gen
+
 
 def uploadLogsAndMetricsToWandB(wandb):
     # Upload model
@@ -245,8 +244,7 @@ def log_tensorboard_visuals(wandb, gen, real_batch, fixed_noise, epoch):
         
         # --- Log to WandB ---
         wandb.log({"Generated Grid": wandb.Image(img_grid_fake, caption=f"epoch_{epoch:03d}"),
-                   "Real Grid": wandb.Image(img_grid_real, caption=f"epoch_{epoch:03d}"),
-                   "epoch": epoch}, commit=False)
+                   "Real Grid": wandb.Image(img_grid_real, caption=f"epoch_{epoch:03d}")}, commit=False)
     gen.train()
 
 def createWandB():

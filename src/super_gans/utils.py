@@ -185,3 +185,37 @@ def calculate_fid_sample(gen, loader, fid_metric):
 
     gen.train()
     return fid_score
+
+def save_model(gen, disc, opt_gen, opt_disc, epoch, filename="checkpoint.pth"):
+    gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"
+    os.makedirs(gan_checkpoints_dir, exist_ok=True)
+
+    checkpoint = {
+        "epoch": epoch,
+        "generator_state_dict": gen.state_dict(),
+        "discriminator_state_dict": disc.state_dict(),
+        "optimizer_G_state_dict": opt_gen.state_dict(),
+        "optimizer_D_state_dict": opt_disc.state_dict(),
+    }
+    
+    save_path = f"{gan_checkpoints_dir}/{filename}"
+    torch.save(checkpoint, save_path)
+    print(f"--- Saved checkpoint: {filename} at epoch {epoch} ---")
+
+def reload_checkpoint_model(gen, disc, opt_gen, opt_disc):
+    checkpoint_path = f"{cfg.MODELS_DIR}/gan_checkpoints/latest_gan.pth"
+
+    # 2. Check if a background run left a file behind
+    if os.path.exists(checkpoint_path):
+        print(" Found previous run checkpoint. Loading metadata...")
+        checkpoint = torch.load(checkpoint_path, map_location=cfg.device)
+        
+        # Load the neural network and optimizer states
+        gen.load_state_dict(checkpoint["generator_state_dict"])
+        disc.load_state_dict(checkpoint["discriminator_state_dict"])
+        opt_gen.load_state_dict(checkpoint["optimizer_G_state_dict"])
+        opt_disc.load_state_dict(checkpoint["optimizer_D_state_dict"])
+        
+        # Start at the NEXT epoch (current saved epoch + 1)
+        start_epoch = checkpoint["epoch"] + 1
+        return start_epoch

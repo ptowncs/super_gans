@@ -79,24 +79,18 @@ class Generator(nn.Module):
     def forward(self, x):
         return self.gen(x)
         
-def training_loop(disc, gen, dataset, wandb):
+def training_loop(disc, gen, opt_disc, opt_gen, dataset, wandb, start_epoch = 0, best_fid = float('inf'), best_fid_epoch = 0):
     fixed_noise = torch.randn((cfg.batch_size, cfg.z_dim)).to(cfg.device)
 
-    opt_disc = optim.Adam(disc.parameters(), lr=cfg.lr, betas = cfg.betas)
-    opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr,betas = cfg.betas)
     criterion = nn.BCEWithLogitsLoss()
     
     loader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=2, pin_memory=True)
-    # 'step' tracks total batches seen (X-axis for loss charts)
-    step = 0
     # feature=64 uses a lower layer of Inception; it's faster for monitoring
     fid_metric = FrechetInceptionDistance(feature=cfg.fid_dims, normalize=True).to(cfg.device)
     
-    best_fid = float('inf') # Initialize with infinity
-    best_fid_epoch = 0
     wandb.define_metric("epoch", hidden=True)
     wandb.define_metric("*", step_metric="epoch")
-    for epoch in range(cfg.num_epochs):
+    for epoch in range(start_epoch, cfg.num_epochs):
         process = psutil.Process(os.getpid())
         print(f"Epoch: {epoch} | RAM GB: {process.memory_info().rss / 1024**3:.2f} \
               | GPU GB: {torch.cuda.memory_allocated() / 1024**3:.2f}")
@@ -276,9 +270,10 @@ if __name__ == '__main__':
 
     disc = Discriminator().to(cfg.device)
     gen = Generator().to(cfg.device)
-
-
-    opt_disc, opt_gen = training_loop(disc, gen, train_dataset,wandb)
+    opt_disc = optim.Adam(disc.parameters(), lr=cfg.lr, betas = cfg.betas)
+    opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr,betas = cfg.betas)
+    
+    training_loop(disc, gen, opt_disc, opt_gen, train_dataset, wandb) 
     save_model(gen, disc, opt_gen, opt_disc, f"epoch:{cfg.num_epochs}", "dc_gan_checkpoint.pth")
     
     real_images_dir = f"{cfg.RESULTS_DIR}/real_images_fid"

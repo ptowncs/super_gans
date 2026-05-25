@@ -94,30 +94,29 @@ def save_images_fid(dataset, to_dir):
         f"Saved {min(cfg.num_images_fid_score, len(dataset))} real Pneumonia images to {to_dir}/"
     )
 
-def generate_images_fid(generator, generated_images_dir):
-    # Generate random noise vectors
-    gen_noise = torch.randn(cfg.num_images_fid_score, cfg.z_dim).to(cfg.device)
-
-    # Generate images
-    with torch.inference_mode():
-        generated_images = generator(gen_noise).reshape(
-            -1, cfg.num_channels, cfg.image_size, cfg.image_size
-        )  # Reshape for saving/display
-
+def generate_images_fid(generator, generated_images_dir, batch_size=128):
     os.makedirs(generated_images_dir, exist_ok=True)
+    generator.eval() # Ensure evaluation mode
+    
+    images_saved = 0
+    # Process in smaller chunks to prevent CUDA OOM
+    while images_saved < cfg.num_images_fid_score:
+        current_batch = min(batch_size, cfg.num_images_fid_score - images_saved)
+        
+        gen_noise = torch.randn(current_batch, cfg.z_dim).to(cfg.device)
+        
+        with torch.inference_mode():
+            # If generator is wrapped in DataParallel, use generator.module or handle normally
+            generated_images = generator(gen_noise)
+            
+        for img in generated_images:
+            # Convert Grayscale -> RGB to match the real images directory
+            image_rgb = img.repeat(3, 1, 1)
+            filename = os.path.join(generated_images_dir, f"generated_image_{images_saved:04d}.png")
+            save_image(image_rgb, filename, normalize=True, value_range=(-1, 1))
+            images_saved += 1
 
-    # Iterate through the batch and save each image separately
-    for i, image in enumerate(generated_images):
-        # Convert Grayscale -> RGB to match the real images directory
-        image_rgb = image.repeat(3, 1, 1)
-        filename = os.path.join(generated_images_dir, f"generated_image_{i:04d}.png")
-
-        # Save the individual image (image tensor has shape (channels, height, width))
-        save_image(image_rgb, filename, normalize=True, value_range=(-1, 1))
-
-    print(
-        f"{cfg.num_images_fid_score} individual images saved to {generated_images_dir}/"
-    )
+    print(f"Successfully generated and saved {images_saved} images to {generated_images_dir}/")
 
 def calc_fid_score(real_images_dir, generated_images_dir):
     # Paths to your image directories

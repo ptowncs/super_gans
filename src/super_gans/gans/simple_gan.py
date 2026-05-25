@@ -48,23 +48,20 @@ class Generator(nn.Module):
         return self.gen(x)
 
 
-def training_loop(disc, gen, dataset, wandb):
+def training_loop(disc, gen, opt_disc, opt_gen, dataset, wandb, start_epoch=0, best_fid=float('inf'), best_fid_epoch=0):
+
     fixed_noise = torch.randn((cfg.batch_size, cfg.z_dim)).to(cfg.device)
 
-    opt_disc = optim.Adam(disc.parameters(), lr=cfg.lr)
-    opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr)
     criterion = nn.BCELoss()
     
     loader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=0, pin_memory=False)
-    # 'step' tracks total batches seen (X-axis for loss charts)
-    step = 0
     # feature=64 uses a lower layer of Inception; it's faster for monitoring
-    # Moving to CPU to avoid GPU contention with GANs
     fid_metric = FrechetInceptionDistance(feature=cfg.fid_dims, normalize=True).to(cfg.device)
-    best_fid = float('inf') # Initialize with infinity
-    best_fid_epoch = 0
+    
+    # Define master timeline metric
     wandb.define_metric("epoch", hidden=True)
     wandb.define_metric("*", step_metric="epoch")
+    
     for epoch in range(cfg.num_epochs):
         process = psutil.Process(os.getpid())
         print(f"Epoch: {epoch} | RAM GB: {process.memory_info().rss / 1024**3:.2f} \
@@ -105,14 +102,10 @@ def training_loop(disc, gen, dataset, wandb):
             lossG.backward()
             opt_gen.step()
 
-            step += 1 # Increment every batch for smooth loss curves
-        
         # --- LOG LOSSES EVERY EPOCH ---
-        #writer.add_scalar("Loss/Discriminator", lossD.item(), global_step=epoch)
-        #writer.add_scalar("Loss/Generator", lossG.item(), global_step=epoch)
+        # Staging loss data. commit=False ensures we wait to push until the end of the epoch.
         wandb.log({"Loss/Discriminator": lossD.item(), "Loss/Generator": lossG.item(), "epoch": epoch}, commit=False)
             
-
         # --- VISUALS AT START OF EPOCH ---
         if epoch % 10 == 0:
             print(f"Epoch [{epoch}/{cfg.num_epochs}] Loss D: {lossD.item():.4f}, Loss G: {lossG.item():.4f}")
@@ -123,8 +116,9 @@ def training_loop(disc, gen, dataset, wandb):
             save_model(gen, disc, opt_gen, opt_disc, epoch, filename="latest_gan.pth")
             current_fid = utils.calculate_fid_sample(gen, loader, fid_metric)
             fid_metric.reset()
-            #writer.add_scalar("Metrics/FID", current_fid, global_step=epoch)
-            wandb.log({"Metrics/FID": current_fid}, step=epoch)
+            
+            # VERIFIED FIX: Bundle 'epoch' into the dictionary and commit the full row to WandB
+            wandb.log({"Metrics/FID": current_fid, "epoch": epoch}, commit=True)
             print(f"--- Epoch [{epoch}] FID Score: {current_fid:.4f} ---")
         
             # Checkpoint: Save as 'best' if quality improved
@@ -133,20 +127,19 @@ def training_loop(disc, gen, dataset, wandb):
                 best_fid_epoch = epoch
                 save_model(gen, disc, opt_gen, opt_disc, epoch, filename="best_gan.pth")
         else:
-            wandb.log({}, commit=True)
+            # VERIFIED FIX: Commits the losses and moves the custom timeline forward on non-FID epochs
+            wandb.log({"epoch": epoch}, commit=True)
+        
         # End of Epoch cleanup
         #writer.flush()
         torch.cuda.empty_cache()
         gc.collect()
-        
     
-    #writer.add_text('Final Results', f'Best FID Epoch: {best_fid_epoch}, Best FID Sample Score: {best_fid}')
+    # --- FINAL RUN SUMMARY ---
     wandb.summary["Best FID Epoch"] = best_fid_epoch
     wandb.summary["Best FID Score"] = best_fid
-    #writer.flush()
     
-    
-    return opt_disc, opt_gen
+    return opt_disc, opt_gen    
 
 def uploadLogsAndMetricsToWandB(wandb):
     # Upload model
@@ -218,8 +211,7 @@ def log_tensorboard_visuals(wandb, gen, real_batch, fixed_noise, epoch):
         
         # --- Log to WandB ---
         wandb.log({"Generated Grid": wandb.Image(img_grid_fake, caption=f"epoch_{epoch:03d}"),
-                   "Real Grid": wandb.Image(img_grid_real, caption=f"epoch_{epoch:03d}"),
-                   "epoch": epoch}, commit=False)
+                   "Real Grid": wandb.Image(img_grid_real, caption=f"epoch_{epoch:03d}")}, commit=False)
     gen.train()
 
 def createWandB():
@@ -242,7 +234,9 @@ if __name__ == '__main__':
     train_dataset = utils.load_data()
     disc = Discriminator().to(cfg.device)
     gen = Generator().to(cfg.device)
-    opt_disc, opt_gen = training_loop(disc, gen, train_dataset,wandb)
+    opt_disc = optim.Adam(disc.parameters(), lr=cfg.lr, betas = cfg.betas)
+    opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr,betas = cfg.betas)
+    training_loop(disc, gen, opt_disc, opt_gen, train_dataset, wandb)
     save_model(gen, disc, opt_gen, opt_disc, f"epoch:{cfg.num_epochs}", "simple_gan_checkpoint.pth")
     
     real_images_dir = f"{cfg.RESULTS_DIR}/real_images_fid"

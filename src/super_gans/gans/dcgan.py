@@ -106,26 +106,34 @@ def training_loop(disc, gen, dataset, wandb):
             batch_size = real.shape[0]
 
             ### Train Discriminator ###
-            
             disc.zero_grad(set_to_none=True)
-            opt_gen.zero_grad(set_to_none=True)
-
+            
+            # Pass 1: Discriminator updates on Real Images
+            disc_real = disc(real).view(-1)
+            
+            # Apply One-Sided Label Smoothing to keep gradients healthy
+            #lossD_real = criterion(disc_real, torch.ones_like(disc_real))
+            lossD_real = criterion(disc_real, torch.ones_like(disc_real) * 0.9)
+            
+            # Pass 2: Discriminator updates on Fake Images
             noise = torch.randn(batch_size, cfg.z_dim).to(cfg.device)
             fake = gen(noise)
-            disc_real = disc(real).view(-1)
-            disc_fake = disc(fake).view(-1)
+            # Explicitly detach the fake images so backpropagation doesn't leak into the Generator
+            disc_fake = disc(fake.detach()).view(-1) 
+            lossD_fake = criterion(disc_fake, torch.zeros_like(disc_fake))
             
-            lossD_real = criterion(disc_real, torch.ones_like(disc_real))
-            lossD_fake = criterion(disc_fake.detach(), torch.zeros_like(disc_fake))
             lossD = (lossD_real + lossD_fake) / 2
-            lossG = criterion(disc_fake, torch.ones_like(disc_fake)) 
-            
-            # Backpropagation
-            # Backward Pass for Discriminator (use retain_graph=True so lossG can reuse the graph)
-            lossD.backward(retain_graph=True)
-            lossG.backward()
-
+            lossD.backward() # NO retain_graph needed anymore!
             opt_disc.step()
+
+            ### Train Generator ###
+            opt_gen.zero_grad(set_to_none=True)
+            
+            # Pass 3: Evaluate fake images again with the updated Discriminator weights
+            disc_fake_for_gen = disc(fake).view(-1) # Do NOT detach here
+            lossG = criterion(disc_fake_for_gen, torch.ones_like(disc_fake_for_gen))
+            
+            lossG.backward()
             opt_gen.step()
         
         # --- LOG LOSSES EVERY EPOCH ---

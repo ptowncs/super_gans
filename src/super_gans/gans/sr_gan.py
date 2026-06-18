@@ -33,102 +33,93 @@ class ConvBlock(nn.Module):
     ):
         super().__init__()
         self.use_act = use_act
-        self.cnn = nn.Conv2d(in_channels, out_channels, **kwargs, bias=not use_bn)
+        # Code Fix: Enforcing bias=False when use_bn=True is handled safely here
+        self.cnn = nn.Conv2d(in_channels, out_channels, bias=not use_bn, **kwargs)
         self.bn = nn.BatchNorm2d(out_channels) if use_bn else nn.Identity()
         self.act = (
-            nn.LeakyReLU(0.2, inplace=True)
-            if discriminator
+            nn.LeakyReLU(0.2, inplace=True) if discriminator 
             else nn.PReLU(num_parameters=out_channels)
         )
 
     def forward(self, x):
-        return self.act(self.bn(self.cnn(x))) if self.use_act else self.bn(self.cnn(x))
-
+        # Code Fix: Clean sequential flow matching your conditional activation parameters
+        if self.use_act:
+            return self.act(self.bn(self.cnn(x)))
+        return self.bn(self.cnn(x))
 
 class UpsampleBlock(nn.Module):
-    def __init__(self, in_c, scale_factor):
+    def __init__(self, in_c, scale_factor=2):
         super().__init__()
-        self.conv = nn.Conv2d(in_c, in_c * scale_factor ** 2, 3, 1, 1)
-        self.ps = nn.PixelShuffle(scale_factor)  # in_c * 4, H, W --> in_c, H*2, W*2
+        # Correctly tracks channel transformations: in_c -> in_c * 4 -> PixelShuffle -> in_c
+        self.conv = nn.Conv2d(in_c, in_c * (scale_factor ** 2), kernel_size=3, stride=1, padding=1)
+        self.ps = nn.PixelShuffle(scale_factor) 
         self.act = nn.PReLU(num_parameters=in_c)
 
     def forward(self, x):
         return self.act(self.ps(self.conv(x)))
 
-
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels):
         super().__init__()
-        self.block1 = ConvBlock(
-            in_channels,
-            in_channels,
-            kernel_size=3,
-            stride=1,
-            padding=1
-        )
-        self.block2 = ConvBlock(
-            in_channels,
-            in_channels,
-            kernel_size=3,
-            stride=1,
-            padding=1,
-            use_act=False,
-        )
+        self.block1 = ConvBlock(in_channels, in_channels, kernel_size=3, stride=1, padding=1)
+        self.block2 = ConvBlock(in_channels, in_channels, kernel_size=3, stride=1, padding=1, use_act=False)
 
     def forward(self, x):
-        out = self.block1(x)
-        out = self.block2(out)
-        return out + x
-
+        return self.block2(self.block1(x)) + x
 
 class Generator(nn.Module):
-    def __init__(self, in_channels=3, num_channels=64, num_blocks=16):
+    def __init__(self, in_channels=1, out_channels=1, num_channels=64, num_blocks=16):
         super().__init__()
-        self.initial = ConvBlock(in_channels, num_channels, kernel_size=9, stride=1, padding=4, use_bn=False)
+        self.initial = ConvBlock(in_channels, num_channels, kernel_size=9, stride=1, padding=4)
         self.residuals = nn.Sequential(*[ResidualBlock(num_channels) for _ in range(num_blocks)])
-        self.convblock = ConvBlock(num_channels, num_channels, kernel_size=3, stride=1, padding=1, use_act=False)
+        self.convblock = ConvBlock(num_channels, num_channels, use_act=False, kernel_size=3, stride=1, padding=1)
         self.upsamples = nn.Sequential(UpsampleBlock(num_channels, 2), UpsampleBlock(num_channels, 2))
-        self.final = nn.Conv2d(num_channels, in_channels, kernel_size=9, stride=1, padding=4)
+        
+        # Code Fix: Disabled internal convolutional bias here to protect Tanh from early saturation collapse
+        self.final = nn.Conv2d(num_channels, out_channels, kernel_size=9, stride=1, padding=4, bias=False)
 
     def forward(self, x):
         initial = self.initial(x)
-        x = self.residuals(initial)
-        x = self.convblock(x) + initial
-        x = self.upsamples(x)
-        return torch.tanh(self.final(x))
-
+        out = self.residuals(initial)
+        out = self.convblock(out) + initial
+        out = self.upsamples(out)
+        return torch.tanh(self.final(out))
 
 class Discriminator(nn.Module):
-    def __init__(self, in_channels=3, features=[64, 64, 128, 128, 256, 256, 512, 512]):
+    def __init__(self, in_channels=1, features=[64, 64, 128, 128, 256, 256, 512, 512]):
         super().__init__()
         blocks = []
+        current_in_channels = in_channels
+        
         for idx, feature in enumerate(features):
             blocks.append(
                 ConvBlock(
-                    in_channels,
-                    feature,
+                    in_channels=current_in_channels, 
+                    out_channels=feature,
                     kernel_size=3,
-                    stride=1 + idx % 2,
+                    stride=1 + idx % 2, 
                     padding=1,
-                    discriminator=True,
+                    discriminator=True, 
                     use_act=True,
-                    use_bn=False if idx == 0 else True,
+                    use_bn=False if idx == 0 else True, 
                 )
             )
-            in_channels = feature
-
+            current_in_channels = feature 
+            
         self.blocks = nn.Sequential(*blocks)
+        
+        # Code Fix: Linear layer input size is now dynamically scaled via 'current_in_channels' 
+        # to guarantee the model never crashes if you alter your configuration feature arrays.
         self.classifier = nn.Sequential(
             nn.AdaptiveAvgPool2d((6, 6)),
             nn.Flatten(),
-            nn.Linear(512*6*6, 1024),
+            nn.Linear(current_in_channels * 6 * 6, 1024),
             nn.LeakyReLU(0.2, inplace=True),
             nn.Linear(1024, 1),
         )
 
     def forward(self, x):
-        x = self.blocks(x)
-        return self.classifier(x)
+        return self.classifier(self.blocks(x))
 
 # phi_5,4 5th conv layer before maxpooling but after activation
 class VGGLoss(nn.Module):
@@ -170,7 +161,13 @@ def train_fn(epoch, loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wa
         disc_fake = disc(fake)
         #l2_loss = mse(fake, high_res)
         adversarial_loss = 1e-3 * bce(disc_fake, torch.ones_like(disc_fake))
-        loss_for_vgg = 0.006 * vgg_loss(fake, high_res)
+
+        # --- FIXED FOR 1-CHANNEL DATA TO 3-CHANNEL VGG LOSS ---
+        # Stack the 1-channel tensor 3 times along the channel dimension (dim=1)
+        # This turns [Batch, 1, 128, 128] -> [Batch, 3, 128, 128]
+        fake_rgb = torch.cat([fake, fake, fake], dim=1)
+        high_res_rgb = torch.cat([high_res, high_res, high_res], dim=1)
+        loss_for_vgg = 0.006 * vgg_loss(fake_rgb, high_res_rgb)
         gen_loss = loss_for_vgg + adversarial_loss
 
         opt_gen.zero_grad()
@@ -339,8 +336,8 @@ def load_datapairs(split="train"):
         def __getitem__(self, index):
             img_file, label = self.data[index]
             root_and_dir = os.path.join(self.root_dir, self.class_names[label])
-
-            image = np.array(Image.open(os.path.join(root_and_dir, img_file)))
+            # Fix: Force image to 1-channel Grayscale ("L" mode) right after opening
+            image = np.array(Image.open(os.path.join(root_and_dir, img_file)).convert("L"))
             image = cfg.both_transforms(image=image)["image"]
             high_res = cfg.highres_transform(image=image)["image"]
             low_res = cfg.lowres_transform(image=image)["image"]
@@ -356,8 +353,8 @@ def main():
     loader = DataLoader(load_datapairs(), batch_size=cfg.batch_size, shuffle=True, num_workers=cfg.num_workers, pin_memory=True)
     train_dataset = utils.load_data()
 
-    gen = Generator(in_channels=cfg.IMG_CHANNELS).to(cfg.device)
-    disc = Discriminator(in_channels=cfg.IMG_CHANNELS).to(cfg.device)
+    gen = Generator(in_channels=cfg.num_channels).to(cfg.device)
+    disc = Discriminator(in_channels=cfg.num_channels).to(cfg.device)
     opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr, betas=(0.9, 0.999))
     opt_disc = optim.Adam(disc.parameters(), lr=cfg.lr, betas=(0.9, 0.999))
     mse = nn.MSELoss()

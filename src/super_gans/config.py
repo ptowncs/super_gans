@@ -61,30 +61,46 @@ fid_interval = 10
 fid_dims = 2048
 betas = (0.5, 0.999)
 
-HIGH_RES = 96
+HIGH_RES = 128
 LOW_RES = HIGH_RES // 4
-IMG_CHANNELS = 3
 
-highres_transform = A.Compose(
-    [
-        A.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
-        ToTensorV2(),
-    ]
-)
+# Change inside config.py:
+high_res_transform = A.Compose([
+    #not needed as done in both_transforms first
+    #A.Resize(width=HIGH_RES, height=HIGH_RES),
+    A.Normalize(mean=[0.5], std=[0.5]),  # One value for single-channel grayscale
+    ToTensorV2(),
+])
 
-lowres_transform = A.Compose(
-    [
-        A.Resize(width=LOW_RES, height=LOW_RES, interpolation=Image.BICUBIC),
-        A.Normalize(mean=[0, 0, 0], std=[1, 1, 1]),
-        ToTensorV2(),
-    ]
-)
+low_res_transform = A.Compose([
+    A.Resize(width=LOW_RES, height=LOW_RES, interpolation=cv2.INTER_CUBIC),
+    A.Normalize(mean=[0.5], std=[0.5]),   # One value for single-channel grayscale
+    ToTensorV2(),
+])
 
 both_transforms = A.Compose(
     [
-        A.RandomCrop(width=HIGH_RES, height=HIGH_RES),
+        # 1. First, resize the whole image safely to your 128x128 square canvas
+        A.Resize(width=HIGH_RES, height=HIGH_RES), 
+        # REMOVED A.RandomCrop completely to preserve global lung anatomy
+        #A.RandomCrop(width=HIGH_RES, height=HIGH_RES),
+        
+        # 2. Mirror the image horizontally. 
+        # (Safe because it just simulates looking at the X-ray from back-to-front)
         A.HorizontalFlip(p=0.5),
-        A.RandomRotate90(p=0.5),
+    
+        # REMOVED A.RandomRotate90 completely!
+        #A.RandomRotate90(p=0.5)
+        # 3. Apply a subtle medical rotation instead of 90 degrees.
+        # 'border_mode=cv2.BORDER_CONSTANT' ensures no weird mirroring artifacts on the edges.
+        A.ShiftScaleRotate(
+            shift_limit=0.05,    # Minor shifting (5% max)
+            scale_limit=0.05,    # Minor zoom (5% max)
+            rotate_limit=5,      # ONLY rotate up to 5 degrees! Prevents losing corners.
+            border_mode=cv2.BORDER_CONSTANT, 
+            value=0,             # Pads any tiny exposed edge with black
+            p=0.5
+        ),
     ]
 )
 

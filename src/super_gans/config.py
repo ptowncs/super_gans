@@ -4,6 +4,10 @@ import torch
 import yaml
 from importlib import resources
 from pathlib import Path
+from PIL import Image
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
+
 
 #Detect if running in Kaggle
 IN_KAGGLE = "KAGGLE_KERNEL_RUN_TYPE" in os.environ
@@ -45,6 +49,7 @@ lr = 1e-4
 z_dim = 128
 image_size = 128
 num_channels = 1
+num_workers = 4
 image_dim = image_size * image_size * num_channels
 batch_size = 64
 num_epochs = 2000
@@ -55,3 +60,37 @@ num_images_fid_score = 5000
 fid_interval = 10
 fid_dims = 2048
 betas = (0.5, 0.999)
+
+HIGH_RES = 96
+LOW_RES = HIGH_RES // 4
+IMG_CHANNELS = 3
+
+highres_transform = A.Compose(
+    [
+        A.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+        ToTensorV2(),
+    ]
+)
+
+lowres_transform = A.Compose(
+    [
+        A.Resize(width=LOW_RES, height=LOW_RES, interpolation=Image.BICUBIC),
+        A.Normalize(mean=[0, 0, 0], std=[1, 1, 1]),
+        ToTensorV2(),
+    ]
+)
+
+both_transforms = A.Compose(
+    [
+        A.RandomCrop(width=HIGH_RES, height=HIGH_RES),
+        A.HorizontalFlip(p=0.5),
+        A.RandomRotate90(p=0.5),
+    ]
+)
+
+test_transform = A.Compose(
+    [
+        A.Normalize(mean=[0, 0, 0], std=[1, 1, 1]),
+        ToTensorV2(),
+    ]
+)

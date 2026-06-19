@@ -6,6 +6,8 @@ dependencies = [
     "torch>=2.10.0",
     "torchvision>=0.25.0",
     "numpy>=2.0.0",
+    "psutil",
+    "albumentations",
     "pyyaml>=6.0.3",
     "tensorboard>=2.20.0",
     "kagglehub>=0.3.13",

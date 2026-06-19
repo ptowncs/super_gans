@@ -7,7 +7,7 @@ from pathlib import Path
 from PIL import Image
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
-
+import cv2
 
 #Detect if running in Kaggle
 IN_KAGGLE = "KAGGLE_KERNEL_RUN_TYPE" in os.environ
@@ -52,7 +52,7 @@ num_channels = 1
 num_workers = 4
 image_dim = image_size * image_size * num_channels
 batch_size = 64
-num_epochs = 2000
+num_epochs = 50
 classify_num_epochs = 15
 classify_image_size = 224
 num_images_fid_sample = 4 * batch_size #256

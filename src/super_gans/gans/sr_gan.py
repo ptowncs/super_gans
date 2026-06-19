@@ -339,8 +339,8 @@ def load_datapairs(split="train"):
             # Fix: Force image to 1-channel Grayscale ("L" mode) right after opening
             image = np.array(Image.open(os.path.join(root_and_dir, img_file)).convert("L"))
             image = cfg.both_transforms(image=image)["image"]
-            high_res = cfg.highres_transform(image=image)["image"]
-            low_res = cfg.lowres_transform(image=image)["image"]
+            high_res = cfg.high_res_transform(image=image)["image"]
+            low_res = cfg.low_res_transform(image=image)["image"]
             return low_res, high_res
     
     dataset_path = utils.get_dataset_path("paultimothymooney/chest-xray-pneumonia/versions/2")

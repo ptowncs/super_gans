@@ -55,9 +55,9 @@ def load_data(split="train"):
     )
     return dataset
 
-def build_fid_evaluation_dataset(target_samples=5000):
-    val_ds = load_data(split="val")
-    test_ds = load_data(split="test")
+def build_fid_evaluation_dataset(load_fn=load_data, target_samples=5000):
+    val_ds = load_fn(split="val")
+    test_ds = load_fn(split="test")
     
     eval_ds = ConcatDataset([val_ds, test_ds])
     current_count = len(eval_ds)
@@ -67,7 +67,7 @@ def build_fid_evaluation_dataset(target_samples=5000):
         needed = target_samples - current_count
         print(f"Pulling the exact same {needed} sequential images from Train split...")
         
-        train_ds = load_data(split="train")
+        train_ds = load_fn(split="train")
         
         # Always pick indices 0 to needed (guarantees the same images every time)
         deterministic_indices = list(range(needed))

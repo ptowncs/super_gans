@@ -179,8 +179,8 @@ def train_fn(epoch, loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wa
             
         # --- VISUALS AT START OF EPOCH ---
         if epoch % 10 == 0:
-            print(f"Epoch [{epoch}/{cfg.num_epochs}] Loss D: {lossD.item():.4f}, Loss G: {lossG.item():.4f}")
-            log_tensorboard_visuals(wandb, gen, real_orig, fixed_noise, epoch)
+            print(f"Epoch [{epoch}/{cfg.num_epochs}] Loss D: {loss_disc.item():.4f}, Loss G: {gen_loss.item():.4f}")
+            log_tensorboard_visuals(wandb, gen, high_res, low_res, epoch)
 
 
 def training_loop(loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wandb, start_epoch=0, best_fid=float('inf'), best_fid_epoch=0):
@@ -201,7 +201,7 @@ def training_loop(loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wand
         # --- FID CALCULATION AT END OF EPOCH ---
         if (epoch % cfg.fid_interval == 0) or (epoch == cfg.num_epochs - 1):
             save_model(gen, disc, opt_gen, opt_disc, epoch, filename="latest_gan.pth")
-            current_fid = utils.calculate_fid_sample(gen, loader, fid_metric)
+            current_fid = calculate_fid_sample(gen, loader, fid_metric)
             fid_metric.reset()
             
             wandb.log({"Metrics/FID": current_fid, "epoch": epoch}, commit=True)
@@ -223,8 +223,6 @@ def training_loop(loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wand
     # --- FINAL RUN SUMMARY ---
     wandb.summary["Best FID Epoch"] = best_fid_epoch
     wandb.summary["Best FID Score"] = best_fid
-    
-    return opt_disc, opt_gen    
 
 def uploadLogsAndMetricsToWandB(wandb):
     # Upload model
@@ -267,14 +265,57 @@ def reloadModel(filename="best_gan.pth"): # Default to the best one
     generator.eval()
     return generator
 
-def log_tensorboard_visuals(wandb, gen, real_batch, fixed_noise, epoch):
+def calculate_fid_sample(gen, loader, fid_metric):
+    """
+    Standalone FID calculation for SR-GAN.
+    Compares high-res ground truth images against generated super-res images.
+    """
+    gen.eval()
+    fid_metric.reset()
+    
+    assert cfg.num_images_fid_sample % cfg.batch_size == 0, "FID sample count must be divisible by batch size"
+    batch_size = cfg.batch_size
+    n_batches = cfg.num_images_fid_sample // batch_size
+    data_iter = iter(loader)
+
+    fid_metric = fid_metric.to(cfg.device)
+    
+    with torch.inference_mode():
+        for _ in range(n_batches):
+            try:
+                low_res_batch, high_res_batch = next(data_iter)
+            except StopIteration:
+                data_iter = iter(loader)
+                low_res_batch, high_res_batch = next(data_iter)
+                
+            low_res_batch = low_res_batch[:batch_size].to(cfg.device)
+            high_res_batch = high_res_batch[:batch_size].to(cfg.device)
+           
+            # 1. Process High-Res (Real) Images
+            real_rgb = (high_res_batch.expand(batch_size, 3, -1, -1) + 1.0) / 2.0
+            fid_metric.update(real_rgb, real=True)
+
+            # 2. Process Super-Res (Fake) Images mapping low-res straight to generator
+            fake_batch = gen(low_res_batch)
+            fake_rgb = (fake_batch.expand(batch_size, 3, -1, -1) + 1.0) / 2.0
+            fid_metric.update(fake_rgb, real=False)
+
+    fid_score_val = fid_metric.compute().item()
+
+    if cfg.device == 'cuda':
+        torch.cuda.empty_cache()
+
+    gen.train()
+    return fid_score_val
+
+def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
     """
     Captures the current state of generation vs real images.
     """
     gen.eval() 
     with torch.inference_mode():
         # 1. Generate fakes (Shape: N, 1, H, W)
-        fake = gen(fixed_noise).reshape(-1, cfg.num_channels, cfg.image_size, cfg.image_size)
+        fake = gen(gen_input).reshape(-1, cfg.num_channels, cfg.image_size, cfg.image_size)
         
         # 2. Reshape real data (Shape: N, 1, H, W)
         real = real_batch.reshape(-1, cfg.num_channels, cfg.image_size, cfg.image_size)
@@ -348,11 +389,60 @@ def load_datapairs(split="train"):
     dataset = DataSetWithHiResLowResPair(root_dir=f"{chest_xray_ds}/{split}")
     return dataset
 
+def save_images_fid(dataset, to_dir):
+    os.makedirs(to_dir, exist_ok=True)
+    for i in range(min(cfg.num_images_fid_score, len(dataset))):
+        # Unpack the paired dataset: we want the high_res ground truth image
+        low_res, high_res = dataset[i] 
+
+        # Convert grayscale -> RGB by repeating channels
+        image_rgb = high_res.repeat(3, 1, 1)
+        filename = os.path.join(to_dir, f"pneumonia_{i:04d}.png")
+        
+        # Saves the ground truth target scaled correctly
+        save_image(image_rgb, filename, normalize=True, value_range=(-1, 1))
+
+    print(
+        f"Saved {min(cfg.num_images_fid_score, len(dataset))} real high-res Pneumonia images to {to_dir}/"
+    )
+
+def generate_images_fid(generator, dataset, generated_images_dir, batch_size=128):
+    os.makedirs(generated_images_dir, exist_ok=True)
+    generator.eval()
+    
+    # Use a simple dataloader to stream low-res inputs in chunks
+    eval_loader = torch.utils.data.DataLoader(
+        dataset, batch_size=batch_size, shuffle=False, drop_last=False
+    )
+    
+    images_saved = 0
+    
+    with torch.inference_mode():
+        for low_res_batch, _ in eval_loader:
+            # Safety check to stop exactly at your requested evaluation count
+            if images_saved >= cfg.num_images_fid_score:
+                break
+                
+            low_res_batch = low_res_batch.to(cfg.device)
+            
+            # Generate super-resolution images using the low-res inputs
+            generated_images = generator(low_res_batch)
+            
+            for img in generated_images:
+                if images_saved >= cfg.num_images_fid_score:
+                    break
+                    
+                # Convert Grayscale -> RGB to match the real images directory
+                image_rgb = img.repeat(3, 1, 1)
+                filename = os.path.join(generated_images_dir, f"generated_image_{images_saved:04d}.png")
+                save_image(image_rgb, filename, normalize=True, value_range=(-1, 1))
+                images_saved += 1
+
+    print(f"Successfully generated and saved {images_saved} images to {generated_images_dir}/")
+
 def main():
     wandb = createWandB()
     loader = DataLoader(load_datapairs(), batch_size=cfg.batch_size, shuffle=True, num_workers=cfg.num_workers, pin_memory=True)
-    train_dataset = utils.load_data()
-
     gen = Generator(in_channels=cfg.num_channels).to(cfg.device)
     disc = Discriminator(in_channels=cfg.num_channels).to(cfg.device)
     opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr, betas=(0.9, 0.999))
@@ -366,10 +456,10 @@ def main():
     
     real_images_dir = f"{cfg.RESULTS_DIR}/real_images_fid"
     generated_images_dir = f"{cfg.RESULTS_DIR}/fake_images_fid"
-    fid_dataset = utils.build_fid_evaluation_dataset(cfg.num_images_fid_score)
-    utils.save_images_fid(fid_dataset, real_images_dir)
+    fid_dataset = utils.build_fid_evaluation_dataset(load_fn=load_datapairs, target_samples=cfg.num_images_fid_score)
+    save_images_fid(fid_dataset, real_images_dir)
     best_model = reloadModel("best_gan.pth")
-    utils.generate_images_fid(best_model, generated_images_dir)
+    generate_images_fid(best_model, fid_dataset, generated_images_dir, batch_size=cfg.batch_size)
     fid_value = utils.calc_fid_score(real_images_dir, generated_images_dir)
     print(f"FID score: {fid_value}")
     uploadLogsAndMetricsToWandB(wandb)

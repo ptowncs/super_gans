@@ -19,7 +19,9 @@ import wandb
 from torchvision.models import vgg19
 from tqdm import tqdm
 
-torch.backends.cudnn.benchmark = True
+# Force cuDNN to use a deterministic algorithm instead of searching
+torch.backends.cudnn.benchmark = False
+torch.backends.cudnn.deterministic = True
 
 class ConvBlock(nn.Module):
     def __init__(

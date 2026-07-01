@@ -20,8 +20,10 @@ from torchvision.models import vgg19
 from tqdm import tqdm
 
 # Force cuDNN to use a deterministic algorithm instead of searching
-torch.backends.cudnn.benchmark = False
-torch.backends.cudnn.deterministic = True
+#torch.backends.cudnn.benchmark = False
+#torch.backends.cudnn.deterministic = True
+# Turn off cuDNN entirely for convolutions to get around kaggle conflicts
+torch.backends.cudnn.enabled = False
 
 class ConvBlock(nn.Module):
     def __init__(

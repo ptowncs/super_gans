@@ -1,8 +1,10 @@
 import os
 import gc       # Good practice for cleaning memory during training
 import psutil   # Used for RAM tracking print statements
-import kagglehub
 import super_gans.config as cfg
+from super_gans.data_handling import PneumoniaKaggleDataset, PneumoniaRsnaDataset
+from super_gans.data_handling import prepare_kaggle_data, prepare_rsna_data
+from pathlib import Path
 
 # PyTorch Core & Dataset Handling
 import torch
@@ -15,44 +17,83 @@ from torchvision.utils import save_image
 from torchmetrics.image.fid import FrechetInceptionDistance
 from pytorch_fid import fid_score
 
+
 def create_dirs():
     dirs = [cfg.DATA_DIR, cfg.RESULTS_DIR, cfg.MODELS_DIR]
     for d in dirs:
         os.makedirs(d, exist_ok=True)
 
-def get_dataset_path(dataset_handle):
-    # 1. (Optional) Force custom cache for Colab/Local
-    # Note: Kaggle will ignore this and stay in /kaggle/input
-    if "KAGGLE_KERNEL_RUN_TYPE" not in os.environ:
-        os.environ['KAGGLEHUB_CACHE'] = cfg.DATA_DIR 
-    
-    # 2. Download and capture the environment-specific path
-    # In Kaggle: returns /kaggle/input/...
-    # In Colab: returns cfg.DATA_DIR/... or default cache
-    dataset_path = kagglehub.dataset_download(dataset_handle)
-    return dataset_path
+
+def get_transforms_pipeline():
+    """Get the standard transforms pipeline for pneumonia dataset."""
+    return transforms.Compose([
+        transforms.Grayscale(
+            num_output_channels=cfg.num_channels
+        ),  # Force 1 channel
+        transforms.Resize((cfg.image_size, cfg.image_size)),
+        transforms.ToTensor(),  # image to tensor
+        transforms.Normalize((0.5,), (0.5,)),  # normalize images , [0,1] to [-1,1]
+    ])
+
 
 def load_data(split="train"):
-    def is_valid_image(filename):
-        return not filename.startswith("._")  # skip hidden macOS files
+    """
+    Load pneumonia dataset for the specified split.
+    Uses configurable data source (Kaggle or RSNA) via cfg.DATA_SOURCE.
+    Loads ONLY pneumonia images (ignores normal).
+    """
+    # Ensure data is prepared (downloaded, split, and copied to split directories)
+    data_source = cfg.DATA_SOURCE.lower()
+    split_dir = "./data/split"
+    transforms_pipeline = get_transforms_pipeline()
 
-    transforms_pipeline = transforms.Compose(
-        [
-            transforms.Grayscale(
-                num_output_channels=cfg.num_channels
-            ),  # Force 1 channel
-            transforms.Resize((cfg.image_size, cfg.image_size)),
-            transforms.ToTensor(),  # image to tensor
-            transforms.Normalize((0.5,), (0.5,)),  # normalize images , [0,1] to [-1,1]
-        ]
-    )
-    dataset_path = get_dataset_path("paultimothymooney/chest-xray-pneumonia/versions/2")
-    chest_xray_ds =  f"{dataset_path}/chest_xray"
-    dataset = datasets.ImageFolder(
-        root=f"{chest_xray_ds}/{split}",
-        transform=transforms_pipeline,
-        is_valid_file=is_valid_image,
-    )
+    if data_source == 'kaggle':
+        prepare_kaggle_data("./data", split_dir)
+        # Load from split directories (non-recursive - flattened structure)
+        if split == "train":
+            image_paths = [p for p in Path(split_dir).glob("train/*") if p.is_file()]
+        elif split == "val" or split == "validation":
+            image_paths = [p for p in Path(split_dir).glob("val/*") if p.is_file()]
+        elif split == "test":
+            # For simplicity, use validation set as test
+            image_paths = [p for p in Path(split_dir).glob("val/*") if p.is_file()]
+            print("Using validation set as test set")
+        else:
+            raise ValueError(f"Unknown split: {split}. Use 'train', 'val', or 'test'")
+
+        # Filter for valid image extensions
+        valid_extensions = [".jpg", ".jpeg", ".png", ".tif", ".tiff"]
+        image_paths = [p for p in image_paths if p.suffix.lower() in valid_extensions]
+
+        dataset = PneumoniaKaggleDataset(
+            image_paths=image_paths,
+            transform=transforms_pipeline,
+        )
+    elif data_source == 'rsna':
+        prepare_rsna_data("./data", split_dir)
+        # Load from split directories (non-recursive - flattened structure)
+        if split == "train":
+            image_paths = [p for p in Path(split_dir).glob("train/*") if p.is_file()]
+        elif split == "val" or split == "validation":
+            image_paths = [p for p in Path(split_dir).glob("val/*") if p.is_file()]
+        elif split == "test":
+            # For simplicity, use validation set as test
+            image_paths = [p for p in Path(split_dir).glob("val/*") if p.is_file()]
+            print("Using validation set as test set")
+        else:
+            raise ValueError(f"Unknown split: {split}. Use 'train', 'val', or 'test'")
+
+        # Filter for DICOM files
+        image_paths = [p for p in image_paths if p.suffix.lower() == ".dcm"]
+
+        dataset = PneumoniaRsnaDataset(
+            image_paths=image_paths,
+            transform=transforms_pipeline,
+        )
+    else:
+        raise ValueError(f"Unknown data source: {data_source}. Use 'kaggle' or 'rsna'")
+
+    print(f"Loaded {len(dataset)} images for {split} split from {data_source} dataset")
     return dataset
 
 def build_fid_evaluation_dataset(load_fn=load_data, target_samples=5000):

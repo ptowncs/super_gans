@@ -1,44 +1,50 @@
+import gc
 import os
+
+import psutil
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torchvision
 import torchvision.datasets as datasets
-from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
-#from torch.utils.tensorboard import SummaryWriter  # to print to tensorboard
-from torch.utils.data import RandomSampler
 from PIL import Image  # Import PIL Image
-import super_gans.config as cfg
-from super_gans import utils
-from torchvision.utils import *
 from pytorch_fid import fid_score
+
+# from torch.utils.tensorboard import SummaryWriter  # to print to tensorboard
+from torch.utils.data import DataLoader, RandomSampler
 from torchmetrics.image.fid import FrechetInceptionDistance
+from torchvision.utils import *
+
+import super_gans.config as cfg
 import wandb
-import gc
-import psutil, os, torch
+from super_gans import utils
+
 
 class Discriminator(nn.Module):
-    '''
+    """
     Discriminator: increases the number of channels(features) while downsampling the spatial dimensions to half
     Skips every other pixel and looks at window of 4 x 4 to create 1 pixel
-    '''
+    """
+
     def __init__(self):
         super().__init__()
         self.disc = nn.Sequential(
-            nn.Conv2d(cfg.num_channels, 32, 4, 2, 1), # num_channels , 128x128 -> 32, 64 x 64
+            nn.Conv2d(
+                cfg.num_channels, 32, 4, 2, 1
+            ),  # num_channels , 128x128 -> 32, 64 x 64
             nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(32, 64, 4, 2, 1), # 32, 64 x 64 -> 64,  32 x 32
+            nn.Conv2d(32, 64, 4, 2, 1),  # 32, 64 x 64 -> 64,  32 x 32
             nn.BatchNorm2d(64),
             nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(64, 128, 4, 2, 1), # 64,  32 x 32 -> 128, 16 x 16
+            nn.Conv2d(64, 128, 4, 2, 1),  # 64,  32 x 32 -> 128, 16 x 16
             nn.BatchNorm2d(128),
             nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(128, 256, 4, 2, 1), #128, 16 x 16 -> 256, 8 x 8 
+            nn.Conv2d(128, 256, 4, 2, 1),  # 128, 16 x 16 -> 256, 8 x 8
             nn.BatchNorm2d(256),
             nn.LeakyReLU(0.2, inplace=True),
             nn.Flatten(),
-            nn.Linear(256 * 8 * 8, 1)
+            nn.Linear(256 * 8 * 8, 1),
         )
 
     def forward(self, x):
@@ -46,10 +52,11 @@ class Discriminator(nn.Module):
 
 
 class Generator(nn.Module):
-    '''
-    Generator: decreases the number of features to num_channels while upsampling spatial dimensions by doubling. 
+    """
+    Generator: decreases the number of features to num_channels while upsampling spatial dimensions by doubling.
     It first inserts 0s in alternate rows and columns and skips 1 pixel to double the image size
-    '''
+    """
+
     def __init__(self):
         super().__init__()
         # z_dim is size of noise vector , image_dim is total pixels in image
@@ -57,45 +64,57 @@ class Generator(nn.Module):
             nn.Linear(cfg.z_dim, 256 * 8 * 8),
             nn.BatchNorm1d(256 * 8 * 8),
             nn.ReLU(True),
-
             nn.Unflatten(1, (256, 8, 8)),
-
             nn.ConvTranspose2d(256, 128, 4, 2, 1),  # 16
             nn.BatchNorm2d(128),
             nn.ReLU(True),
-
-            nn.ConvTranspose2d(128, 64, 4, 2, 1),   # 32
+            nn.ConvTranspose2d(128, 64, 4, 2, 1),  # 32
             nn.BatchNorm2d(64),
             nn.ReLU(True),
-
-            nn.ConvTranspose2d(64, 32, 4, 2, 1),    # 64
+            nn.ConvTranspose2d(64, 32, 4, 2, 1),  # 64
             nn.BatchNorm2d(32),
             nn.ReLU(True),
-
             nn.ConvTranspose2d(32, cfg.num_channels, 4, 2, 1),  # 128
-            nn.Tanh()
+            nn.Tanh(),
         )
 
     def forward(self, x):
         return self.gen(x)
-        
-def training_loop(disc, gen, opt_disc, opt_gen, dataset, wandb, start_epoch=0, best_fid=float('inf'), best_fid_epoch=0):
+
+
+def training_loop(
+    disc,
+    gen,
+    opt_disc,
+    opt_gen,
+    dataset,
+    wandb,
+    start_epoch=0,
+    best_fid=float("inf"),
+    best_fid_epoch=0,
+):
     fixed_noise = torch.randn((cfg.batch_size, cfg.z_dim)).to(cfg.device)
 
     criterion = nn.BCEWithLogitsLoss()
-    
-    loader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=2, pin_memory=True)
+
+    loader = DataLoader(
+        dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=2, pin_memory=True
+    )
     # feature=64 uses a lower layer of Inception; it's faster for monitoring
-    fid_metric = FrechetInceptionDistance(feature=cfg.fid_dims, normalize=True).to(cfg.device)
-    
+    fid_metric = FrechetInceptionDistance(feature=cfg.fid_dims, normalize=True).to(
+        cfg.device
+    )
+
     # Define master timeline metric
     wandb.define_metric("epoch", hidden=True)
     wandb.define_metric("*", step_metric="epoch")
-    
+
     for epoch in range(start_epoch, cfg.num_epochs):
         process = psutil.Process(os.getpid())
-        print(f"Epoch: {epoch} | RAM GB: {process.memory_info().rss / 1024**3:.2f} \
-              | GPU GB: {torch.cuda.memory_allocated() / 1024**3:.2f}")
+        print(
+            f"Epoch: {epoch} | RAM GB: {process.memory_info().rss / 1024**3:.2f} \
+              | GPU GB: {torch.cuda.memory_allocated() / 1024**3:.2f}"
+        )
 
         for batch_idx, (real_orig, _) in enumerate(loader):
             real = real_orig.to(cfg.device)
@@ -103,41 +122,50 @@ def training_loop(disc, gen, opt_disc, opt_gen, dataset, wandb, start_epoch=0, b
 
             ### Train Discriminator ###
             disc.zero_grad(set_to_none=True)
-            
+
             # Pass 1: Discriminator updates on Real Images
             disc_real = disc(real).view(-1)
-            
+
             # Apply One-Sided Label Smoothing to keep gradients healthy
             lossD_real = criterion(disc_real, torch.ones_like(disc_real) * 0.9)
-            
+
             # Pass 2: Discriminator updates on Fake Images
             noise = torch.randn(batch_size, cfg.z_dim).to(cfg.device)
             fake = gen(noise)
             # Explicitly detach the fake images so backpropagation doesn't leak into the Generator
-            disc_fake = disc(fake.detach()).view(-1) 
+            disc_fake = disc(fake.detach()).view(-1)
             lossD_fake = criterion(disc_fake, torch.zeros_like(disc_fake))
-            
+
             lossD = (lossD_real + lossD_fake) / 2
-            lossD.backward() 
+            lossD.backward()
             opt_disc.step()
 
             ### Train Generator ###
             opt_gen.zero_grad(set_to_none=True)
-            
+
             # Pass 3: Evaluate fake images again with the updated Discriminator weights
-            disc_fake_for_gen = disc(fake).view(-1) # Do NOT detach here
+            disc_fake_for_gen = disc(fake).view(-1)  # Do NOT detach here
             lossG = criterion(disc_fake_for_gen, torch.ones_like(disc_fake_for_gen))
-            
+
             lossG.backward()
             opt_gen.step()
-        
+
         # --- LOG LOSSES EVERY EPOCH ---
         # Staging loss data. commit=False ensures we wait to push until the end of the epoch.
-        wandb.log({"Loss/Discriminator": lossD.item(), "Loss/Generator": lossG.item(), "epoch": epoch}, commit=False)
-            
+        wandb.log(
+            {
+                "Loss/Discriminator": lossD.item(),
+                "Loss/Generator": lossG.item(),
+                "epoch": epoch,
+            },
+            commit=False,
+        )
+
         # --- VISUALS AT START OF EPOCH ---
         if epoch % 10 == 0:
-            print(f"Epoch [{epoch}/{cfg.num_epochs}] Loss D: {lossD.item():.4f}, Loss G: {lossG.item():.4f}")
+            print(
+                f"Epoch [{epoch}/{cfg.num_epochs}] Loss D: {lossD.item():.4f}, Loss G: {lossG.item():.4f}"
+            )
             log_tensorboard_visuals(wandb, gen, real_orig, fixed_noise, epoch)
 
         # --- FID CALCULATION AT END OF EPOCH ---
@@ -145,11 +173,11 @@ def training_loop(disc, gen, opt_disc, opt_gen, dataset, wandb, start_epoch=0, b
             save_model(gen, disc, opt_gen, opt_disc, epoch, filename="latest_gan.pth")
             current_fid = utils.calculate_fid_sample(gen, loader, fid_metric)
             fid_metric.reset()
-            
+
             # VERIFIED FIX: Bundle 'epoch' into the dictionary and commit the full row to WandB
             wandb.log({"Metrics/FID": current_fid, "epoch": epoch}, commit=True)
             print(f"--- Epoch [{epoch}] FID Score: {current_fid:.4f} ---")
-        
+
             # Checkpoint: Save as 'best' if quality improved
             if current_fid < best_fid:
                 best_fid = current_fid
@@ -158,15 +186,15 @@ def training_loop(disc, gen, opt_disc, opt_gen, dataset, wandb, start_epoch=0, b
         else:
             # VERIFIED FIX: Commits the losses and moves the custom timeline forward on non-FID epochs
             wandb.log({"epoch": epoch}, commit=True)
-            
+
         # End of Epoch cleanup
         torch.cuda.empty_cache()
         gc.collect()
-        
+
     # --- FINAL RUN SUMMARY ---
     wandb.summary["Best FID Epoch"] = best_fid_epoch
     wandb.summary["Best FID Score"] = best_fid
-    
+
     return opt_disc, opt_gen
 
 
@@ -177,6 +205,7 @@ def uploadLogsAndMetricsToWandB(wandb):
     file_path = f"{gan_checkpoints_dir}/best_gan.pth"
     artifact.add_file(file_path)
     wandb.log_artifact(artifact)
+
 
 def save_model(gen, disc, opt_gen, opt_disc, epoch, filename="checkpoint.pth"):
     gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"
@@ -189,12 +218,13 @@ def save_model(gen, disc, opt_gen, opt_disc, epoch, filename="checkpoint.pth"):
         "optimizer_G_state_dict": opt_gen.state_dict(),
         "optimizer_D_state_dict": opt_disc.state_dict(),
     }
-    
+
     save_path = f"{gan_checkpoints_dir}/{filename}"
     torch.save(checkpoint, save_path)
     print(f"--- Saved checkpoint: {filename} at epoch {epoch} ---")
 
-def reloadModel(filename="best_gan.pth"): # Default to the best one
+
+def reloadModel(filename="best_gan.pth"):  # Default to the best one
     gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"
     generator = Generator().to(cfg.device)
     checkpoint_path = f"{gan_checkpoints_dir}/{filename}"
@@ -207,27 +237,30 @@ def reloadModel(filename="best_gan.pth"): # Default to the best one
         print(f"Loaded {filename} weights.")
     except Exception as e:
         print(f"Failed to load {filename}: {e}")
-        
+
     generator.eval()
     return generator
+
 
 def log_tensorboard_visuals(wandb, gen, real_batch, fixed_noise, epoch):
     """
     Captures the current state of generation vs real images.
     """
-    gen.eval() 
+    gen.eval()
     with torch.inference_mode():
         # 1. Generate fakes (Shape: N, 1, H, W)
-        fake = gen(fixed_noise).reshape(-1, cfg.num_channels, cfg.image_size, cfg.image_size)
-        
+        fake = gen(fixed_noise).reshape(
+            -1, cfg.num_channels, cfg.image_size, cfg.image_size
+        )
+
         # 2. Reshape real data (Shape: N, 1, H, W)
         real = real_batch.reshape(-1, cfg.num_channels, cfg.image_size, cfg.image_size)
 
         # 3. Convert both from 1-channel to 3-channel (RGB)
         # This is necessary so the grid looks consistent in all viewers
 
-        #fake_rgb = fake.repeat(1, 3, 1, 1)
-        #real_rgb = real.repeat(1, 3, 1, 1)
+        # fake_rgb = fake.repeat(1, 3, 1, 1)
+        # real_rgb = real.repeat(1, 3, 1, 1)
 
         fake_rgb = fake.expand(-1, 3, -1, -1)
         real_rgb = real.expand(-1, 3, -1, -1)
@@ -235,17 +268,29 @@ def log_tensorboard_visuals(wandb, gen, real_batch, fixed_noise, epoch):
         # 4. Create grids using Torchvision's built-in normalization
         # normalize=True: shifts the range to [0, 1]
         # value_range=(-1, 1): tells the function our Tanh/Transform output is [-1, 1]
-        img_grid_fake = torchvision.utils.make_grid(fake_rgb, nrow=8, normalize=True, value_range=(-1, 1))
-        img_grid_real = torchvision.utils.make_grid(real_rgb, nrow=8, normalize=True, value_range=(-1, 1))
+        img_grid_fake = torchvision.utils.make_grid(
+            fake_rgb, nrow=8, normalize=True, value_range=(-1, 1)
+        )
+        img_grid_real = torchvision.utils.make_grid(
+            real_rgb, nrow=8, normalize=True, value_range=(-1, 1)
+        )
         # 5. Log to TensorBoard
-        #writer.add_image("Images/Generated", img_grid_fake, global_step=epoch)
-        #writer.add_image("Images/Real", img_grid_real, global_step=epoch)
+        # writer.add_image("Images/Generated", img_grid_fake, global_step=epoch)
+        # writer.add_image("Images/Real", img_grid_real, global_step=epoch)
         # --- Make grids ---
-        
+
         # --- Log to WandB ---
-        wandb.log({"Generated Grid": wandb.Image(img_grid_fake, caption=f"epoch_{epoch:03d}"),
-                   "Real Grid": wandb.Image(img_grid_real, caption=f"epoch_{epoch:03d}")}, commit=False)
+        wandb.log(
+            {
+                "Generated Grid": wandb.Image(
+                    img_grid_fake, caption=f"epoch_{epoch:03d}"
+                ),
+                "Real Grid": wandb.Image(img_grid_real, caption=f"epoch_{epoch:03d}"),
+            },
+            commit=False,
+        )
     gen.train()
+
 
 def createWandB():
     wandb.init(
@@ -258,22 +303,26 @@ def createWandB():
             "z_dim": cfg.z_dim,
             "image_size": cfg.image_size,
             "num_channels": cfg.num_channels,
-            })
+        },
+    )
     return wandb
 
-if __name__ == '__main__':
-    #writer = SummaryWriter("logs/dcgan_run_1")
+
+if __name__ == "__main__":
+    # writer = SummaryWriter("logs/dcgan_run_1")
     wandb = createWandB()
     train_dataset = utils.load_data()
 
     disc = Discriminator().to(cfg.device)
     gen = Generator().to(cfg.device)
-    opt_disc = optim.Adam(disc.parameters(), lr=cfg.lr, betas = cfg.betas)
-    opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr,betas = cfg.betas)
-    
-    training_loop(disc, gen, opt_disc, opt_gen, train_dataset, wandb) 
-    save_model(gen, disc, opt_gen, opt_disc, f"epoch:{cfg.num_epochs}", "dc_gan_checkpoint.pth")
-    
+    opt_disc = optim.Adam(disc.parameters(), lr=cfg.lr, betas=cfg.betas)
+    opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr, betas=cfg.betas)
+
+    training_loop(disc, gen, opt_disc, opt_gen, train_dataset, wandb)
+    save_model(
+        gen, disc, opt_gen, opt_disc, f"epoch:{cfg.num_epochs}", "dc_gan_checkpoint.pth"
+    )
+
     real_images_dir = f"{cfg.RESULTS_DIR}/real_images_fid"
     generated_images_dir = f"{cfg.RESULTS_DIR}/fake_images_fid"
     fid_dataset = utils.build_fid_evaluation_dataset(cfg.num_images_fid_score)
@@ -287,4 +336,3 @@ if __name__ == '__main__':
     # Log final metrics
     wandb.run.summary["final_fid"] = fid_value
     wandb.finish()
-

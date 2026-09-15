@@ -1,22 +1,25 @@
+import gc
 import os
+
+import psutil
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torchvision
 import torchvision.datasets as datasets
-from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
-#from torch.utils.tensorboard import SummaryWriter  # to print to tensorboard
-from torch.utils.data import RandomSampler
 from PIL import Image  # Import PIL Image
-import super_gans.config as cfg
-from super_gans import utils
-from torchvision.utils import save_image
 from pytorch_fid import fid_score
+
+#from torch.utils.tensorboard import SummaryWriter  # to print to tensorboard
+from torch.utils.data import DataLoader, RandomSampler
 from torchmetrics.image.fid import FrechetInceptionDistance
+from torchvision.utils import save_image
+
+import super_gans.config as cfg
 import wandb
-import gc
-import psutil, os, torch
+from super_gans import utils
+
 
 class Discriminator(nn.Module):
     def __init__(self):

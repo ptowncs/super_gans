@@ -1,21 +1,27 @@
+import gc  # Good practice for cleaning memory during training
 import os
-import gc       # Good practice for cleaning memory during training
-import psutil   # Used for RAM tracking print statements
-import super_gans.config as cfg
-from super_gans.data_handling import PneumoniaKaggleDataset, PneumoniaRsnaDataset
-from super_gans.data_handling import prepare_kaggle_data, prepare_rsna_data
 from pathlib import Path
+
+import psutil  # Used for RAM tracking print statements
 
 # PyTorch Core & Dataset Handling
 import torch
-import torchvision.transforms as transforms
 import torchvision.datasets as datasets
+import torchvision.transforms as transforms
+from pytorch_fid import fid_score
 from torch.utils.data import ConcatDataset, Subset
-from torchvision.utils import save_image
 
 # Evaluation Metrics (Inline Validation & Final Benchmarks)
 from torchmetrics.image.fid import FrechetInceptionDistance
-from pytorch_fid import fid_score
+from torchvision.utils import save_image
+
+import super_gans.config as cfg
+from super_gans.data_handling import (
+    PneumoniaKaggleDataset,
+    PneumoniaRsnaDataset,
+    prepare_kaggle_data,
+    prepare_rsna_data,
+)
 
 
 def create_dirs():

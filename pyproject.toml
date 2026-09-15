@@ -14,7 +14,8 @@ dependencies = [
     "pytorch-fid>=0.3.0",
     "torchmetrics[image]",
     "torch-fidelity",  # Required for FID calculation
-    "wandb"
+    "wandb",
+    "pydicom"
 ]
 [build-system]
 requires = ["hatchling"]

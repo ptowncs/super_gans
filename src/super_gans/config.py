@@ -9,11 +9,11 @@ import albumentations as A
 from albumentations.pytorch import ToTensorV2
 import cv2
 
-#Detect if running in Kaggle
+# Detect if running in Kaggle
 IN_KAGGLE = "KAGGLE_KERNEL_RUN_TYPE" in os.environ
 
 # Detect if running in Colab
-IN_COLAB = 'COLAB_GPU' in os.environ
+IN_COLAB = "COLAB_GPU" in os.environ
 print(f"IN_KAGGLE: {IN_KAGGLE}")
 print(f"IN_COLAB: {IN_COLAB}")
 repo = "super_gans"
@@ -40,7 +40,10 @@ RESULTS_DIR = f"{DRIVE_PATH}/results/{timestamp}"
 with resources.files("super_gans").joinpath("config.yaml").open("r") as f:
     config = yaml.safe_load(f)
 print(config)
-print(config['repos']['dataset_handle'])
+print(config["repos"]["dataset_handle"])
+
+# Data source selection: 'kaggle' or 'rsna'
+DATA_SOURCE = "kaggle"  # Default to Kaggle
 
 # Hyperparameters etc.
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -49,13 +52,13 @@ lr = 1e-4
 z_dim = 128
 image_size = 128
 num_channels = 1
-num_workers = 4
+num_workers = 0
 image_dim = image_size * image_size * num_channels
 batch_size = 64
-num_epochs = 50
+num_epochs = 20
 classify_num_epochs = 15
 classify_image_size = 224
-num_images_fid_sample = 4 * batch_size #256
+num_images_fid_sample = 4 * batch_size  # 256
 num_images_fid_score = 5000
 fid_interval = 10
 fid_dims = 2048
@@ -65,41 +68,43 @@ HIGH_RES = 128
 LOW_RES = HIGH_RES // 4
 
 # Change inside config.py:
-high_res_transform = A.Compose([
-    #not needed as done in both_transforms first
-    #A.Resize(width=HIGH_RES, height=HIGH_RES),
-    A.Normalize(mean=[0.5], std=[0.5]),  # One value for single-channel grayscale
-    ToTensorV2(),
-])
+high_res_transform = A.Compose(
+    [
+        # not needed as done in both_transforms first
+        # A.Resize(width=HIGH_RES, height=HIGH_RES),
+        A.Normalize(mean=[0.5], std=[0.5]),  # One value for single-channel grayscale
+        ToTensorV2(),
+    ]
+)
 
-low_res_transform = A.Compose([
-    A.Resize(width=LOW_RES, height=LOW_RES, interpolation=cv2.INTER_CUBIC),
-    A.Normalize(mean=[0.5], std=[0.5]),   # One value for single-channel grayscale
-    ToTensorV2(),
-])
+low_res_transform = A.Compose(
+    [
+        A.Resize(width=LOW_RES, height=LOW_RES, interpolation=cv2.INTER_CUBIC),
+        A.Normalize(mean=[0.5], std=[0.5]),  # One value for single-channel grayscale
+        ToTensorV2(),
+    ]
+)
 
 both_transforms = A.Compose(
     [
         # 1. First, resize the whole image safely to your 128x128 square canvas
-        A.Resize(width=HIGH_RES, height=HIGH_RES), 
+        A.Resize(width=HIGH_RES, height=HIGH_RES),
         # REMOVED A.RandomCrop completely to preserve global lung anatomy
-        #A.RandomCrop(width=HIGH_RES, height=HIGH_RES),
-        
-        # 2. Mirror the image horizontally. 
+        # A.RandomCrop(width=HIGH_RES, height=HIGH_RES),
+        # 2. Mirror the image horizontally.
         # (Safe because it just simulates looking at the X-ray from back-to-front)
         A.HorizontalFlip(p=0.5),
-    
         # REMOVED A.RandomRotate90 completely!
-        #A.RandomRotate90(p=0.5)
+        # A.RandomRotate90(p=0.5)
         # 3. Apply a subtle medical rotation instead of 90 degrees.
         # 'border_mode=cv2.BORDER_CONSTANT' ensures no weird mirroring artifacts on the edges.
         A.ShiftScaleRotate(
-            shift_limit=0.05,    # Minor shifting (5% max)
-            scale_limit=0.05,    # Minor zoom (5% max)
-            rotate_limit=5,      # ONLY rotate up to 5 degrees! Prevents losing corners.
-            border_mode=cv2.BORDER_CONSTANT, 
-            value=0,             # Pads any tiny exposed edge with black
-            p=0.5
+            shift_limit=0.05,  # Minor shifting (5% max)
+            scale_limit=0.05,  # Minor zoom (5% max)
+            rotate_limit=5,  # ONLY rotate up to 5 degrees! Prevents losing corners.
+            border_mode=cv2.BORDER_CONSTANT,
+            value=0,  # Pads any tiny exposed edge with black
+            p=0.5,
         ),
     ]
 )

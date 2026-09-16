@@ -340,7 +340,9 @@ def generate_images_fid(generator, dataset, generated_images_dir, batch_size=128
     print(f"Successfully generated and saved {images_saved} images to {generated_images_dir}/")
 
 def main(restart=False, best_fid=float('inf'), best_fid_epoch=0):
+    start_epoch = 0
     wandb = createWandB()
+    utils.prepare_data()
     loader = DataLoader(load_datapairs(), batch_size=cfg.batch_size, shuffle=True, num_workers=cfg.num_workers, pin_memory=True)
     gen = Generator(in_channels=cfg.num_channels).to(cfg.device)
     disc = Discriminator(in_channels=cfg.num_channels).to(cfg.device)
@@ -350,7 +352,7 @@ def main(restart=False, best_fid=float('inf'), best_fid_epoch=0):
     bce = nn.BCEWithLogitsLoss()
     vgg_loss = VGGLoss()
 
-    if(restart):
+    if restart:
         # Check for existing checkpoint to resume training
         start_epoch = utils.reload_checkpoint_model(gen, disc, opt_gen, opt_disc)
 

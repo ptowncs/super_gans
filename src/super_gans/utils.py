@@ -42,19 +42,34 @@ def get_transforms_pipeline():
     ])
 
 
+def prepare_data():
+    """
+    Prepare the data (download, split, and copy to split directories) based on the configured data source.
+    This should be called once before loading the dataset for training/evaluation.
+    """
+    data_source = cfg.DATA_SOURCE.lower()
+    split_dir = "./data/split"
+
+    if data_source == 'kaggle':
+        prepare_kaggle_data("./data", split_dir)
+    elif data_source == 'rsna':
+        prepare_rsna_data("./data", split_dir)
+    else:
+        raise ValueError(f"Unknown data source: {data_source}. Use 'kaggle' or 'rsna'")
+
+
 def load_data(split="train"):
     """
     Load pneumonia dataset for the specified split.
     Uses configurable data source (Kaggle or RSNA) via cfg.DATA_SOURCE.
     Loads ONLY pneumonia images (ignores normal).
+    Assumes data has been prepared via prepare_data().
     """
-    # Ensure data is prepared (downloaded, split, and copied to split directories)
     data_source = cfg.DATA_SOURCE.lower()
     split_dir = "./data/split"
     transforms_pipeline = get_transforms_pipeline()
 
     if data_source == 'kaggle':
-        prepare_kaggle_data("./data", split_dir)
         # Load from split directories (non-recursive - flattened structure)
         if split == "train":
             image_paths = [p for p in Path(split_dir).glob("train/*") if p.is_file()]
@@ -76,7 +91,6 @@ def load_data(split="train"):
             transform=transforms_pipeline,
         )
     elif data_source == 'rsna':
-        prepare_rsna_data("./data", split_dir)
         # Load from split directories (non-recursive - flattened structure)
         if split == "train":
             image_paths = [p for p in Path(split_dir).glob("train/*") if p.is_file()]

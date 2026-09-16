@@ -207,12 +207,14 @@ def createWandB():
 def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
     # writer = SummaryWriter("logs/simple_gan_run_1")
     wandb = createWandB()
+    utils.prepare_data()
     train_dataset = utils.load_data()
     disc = Discriminator().to(cfg.device)
     gen = Generator().to(cfg.device)
     opt_disc = optim.Adam(disc.parameters(), lr=cfg.lr, betas=cfg.betas)
     opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr, betas=cfg.betas)
 
+    start_epoch = 0
     if restart:
         # Check for existing checkpoint to resume training
         start_epoch = utils.reload_checkpoint_model(gen, disc, opt_gen, opt_disc)

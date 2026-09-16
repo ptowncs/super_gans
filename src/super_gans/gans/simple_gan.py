@@ -246,7 +246,7 @@ def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
 
     real_images_dir = f"{cfg.RESULTS_DIR}/real_images_fid"
     generated_images_dir = f"{cfg.RESULTS_DIR}/fake_images_fid"
-    fid_dataset = utils.build_fid_evaluation_dataset(cfg.num_images_fid_score)
+    fid_dataset = utils.build_fid_evaluation_dataset(target_samples=cfg.num_images_fid_score)
     utils.save_images_fid(fid_dataset, real_images_dir)
     # Need to reload just the generator for final evaluation - always load best model
     gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"

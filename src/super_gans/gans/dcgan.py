@@ -166,11 +166,11 @@ def training_loop(
             print(
                 f"Epoch [{epoch}/{cfg.num_epochs}] Loss D: {lossD.item():.4f}, Loss G: {lossG.item():.4f}"
             )
-            log_tensorboard_visuals(wandb, gen, real_orig, fixed_noise, epoch)
+            utils.log_tensorboard_visuals(wandb, gen, real_orig, fixed_noise, epoch)
 
         # --- FID CALCULATION AT END OF EPOCH ---
         if (epoch % cfg.fid_interval == 0) or (epoch == cfg.num_epochs - 1):
-            save_model(gen, disc, opt_gen, opt_disc, epoch, filename="latest_gan.pth")
+            utils.save_model(gen, disc, opt_gen, opt_disc, epoch, filename="latest_gan.pth")
             current_fid = utils.calculate_fid_sample(gen, loader, fid_metric)
             fid_metric.reset()
 
@@ -182,7 +182,7 @@ def training_loop(
             if current_fid < best_fid:
                 best_fid = current_fid
                 best_fid_epoch = epoch
-                save_model(gen, disc, opt_gen, opt_disc, epoch, filename="best_gan.pth")
+                utils.save_model(gen, disc, opt_gen, opt_disc, epoch, filename="best_gan.pth")
         else:
             # VERIFIED FIX: Commits the losses and moves the custom timeline forward on non-FID epochs
             wandb.log({"epoch": epoch}, commit=True)
@@ -207,89 +207,10 @@ def uploadLogsAndMetricsToWandB(wandb):
     wandb.log_artifact(artifact)
 
 
-def save_model(gen, disc, opt_gen, opt_disc, epoch, filename="checkpoint.pth"):
-    gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"
-    os.makedirs(gan_checkpoints_dir, exist_ok=True)
-
-    checkpoint = {
-        "epoch": epoch,
-        "generator_state_dict": gen.state_dict(),
-        "discriminator_state_dict": disc.state_dict(),
-        "optimizer_G_state_dict": opt_gen.state_dict(),
-        "optimizer_D_state_dict": opt_disc.state_dict(),
-    }
-
-    save_path = f"{gan_checkpoints_dir}/{filename}"
-    torch.save(checkpoint, save_path)
-    print(f"--- Saved checkpoint: {filename} at epoch {epoch} ---")
 
 
-def reloadModel(filename="best_gan.pth"):  # Default to the best one
-    gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"
-    generator = Generator().to(cfg.device)
-    checkpoint_path = f"{gan_checkpoints_dir}/{filename}"
-
-    try:
-        # Map location ensures it loads on the right device (CPU/GPU)
-        checkpoint = torch.load(checkpoint_path, map_location=cfg.device)
-        # Use the correct key from your save_model function
-        generator.load_state_dict(checkpoint["generator_state_dict"])
-        print(f"Loaded {filename} weights.")
-    except Exception as e:
-        print(f"Failed to load {filename}: {e}")
-
-    generator.eval()
-    return generator
 
 
-def log_tensorboard_visuals(wandb, gen, real_batch, fixed_noise, epoch):
-    """
-    Captures the current state of generation vs real images.
-    """
-    gen.eval()
-    with torch.inference_mode():
-        # 1. Generate fakes (Shape: N, 1, H, W)
-        fake = gen(fixed_noise).reshape(
-            -1, cfg.num_channels, cfg.image_size, cfg.image_size
-        )
-
-        # 2. Reshape real data (Shape: N, 1, H, W)
-        real = real_batch.reshape(-1, cfg.num_channels, cfg.image_size, cfg.image_size)
-
-        # 3. Convert both from 1-channel to 3-channel (RGB)
-        # This is necessary so the grid looks consistent in all viewers
-
-        # fake_rgb = fake.repeat(1, 3, 1, 1)
-        # real_rgb = real.repeat(1, 3, 1, 1)
-
-        fake_rgb = fake.expand(-1, 3, -1, -1)
-        real_rgb = real.expand(-1, 3, -1, -1)
-
-        # 4. Create grids using Torchvision's built-in normalization
-        # normalize=True: shifts the range to [0, 1]
-        # value_range=(-1, 1): tells the function our Tanh/Transform output is [-1, 1]
-        img_grid_fake = torchvision.utils.make_grid(
-            fake_rgb, nrow=8, normalize=True, value_range=(-1, 1)
-        )
-        img_grid_real = torchvision.utils.make_grid(
-            real_rgb, nrow=8, normalize=True, value_range=(-1, 1)
-        )
-        # 5. Log to TensorBoard
-        # writer.add_image("Images/Generated", img_grid_fake, global_step=epoch)
-        # writer.add_image("Images/Real", img_grid_real, global_step=epoch)
-        # --- Make grids ---
-
-        # --- Log to WandB ---
-        wandb.log(
-            {
-                "Generated Grid": wandb.Image(
-                    img_grid_fake, caption=f"epoch_{epoch:03d}"
-                ),
-                "Real Grid": wandb.Image(img_grid_real, caption=f"epoch_{epoch:03d}"),
-            },
-            commit=False,
-        )
-    gen.train()
 
 
 def createWandB():
@@ -318,8 +239,15 @@ if __name__ == "__main__":
     opt_disc = optim.Adam(disc.parameters(), lr=cfg.lr, betas=cfg.betas)
     opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr, betas=cfg.betas)
 
-    training_loop(disc, gen, opt_disc, opt_gen, train_dataset, wandb)
-    save_model(
+    # Check for existing checkpoint to resume training
+    start_epoch = utils.reload_checkpoint_model(gen, disc, opt_gen, opt_disc)
+    if start_epoch == 0:
+        print("Starting training from scratch")
+    else:
+        print(f"Resuming training from epoch {start_epoch}")
+
+    training_loop(disc, gen, opt_disc, opt_gen, train_dataset, wandb, start_epoch=start_epoch)
+    utils.save_model(
         gen, disc, opt_gen, opt_disc, f"epoch:{cfg.num_epochs}", "dc_gan_checkpoint.pth"
     )
 
@@ -327,7 +255,19 @@ if __name__ == "__main__":
     generated_images_dir = f"{cfg.RESULTS_DIR}/fake_images_fid"
     fid_dataset = utils.build_fid_evaluation_dataset(cfg.num_images_fid_score)
     utils.save_images_fid(fid_dataset, real_images_dir)
-    best_model = reloadModel("best_gan.pth")
+    best_model = utils.reload_checkpoint_model(gen, disc, opt_gen, opt_disc)  # Load best model for final eval
+    # Need to reload just the generator for final evaluation
+    if start_epoch > 0:  # If we resumed, we need to reload the best model properly
+        gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"
+        best_model_path = f"{gan_checkpoints_dir}/best_gan.pth"
+        try:
+            checkpoint = torch.load(best_model_path, map_location=cfg.device)
+            gen.load_state_dict(checkpoint["generator_state_dict"])
+            print(f"Loaded best model from epoch {checkpoint['epoch']}")
+        except Exception as e:
+            print(f"Failed to load best model: {e}")
+            # Fallback to just using current model
+            pass
     utils.generate_images_fid(best_model, generated_images_dir)
     fid_value = utils.calc_fid_score(real_images_dir, generated_images_dir)
     print(f"FID score: {fid_value}")

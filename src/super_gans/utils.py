@@ -256,13 +256,64 @@ def reload_checkpoint_model(gen, disc, opt_gen, opt_disc):
     if os.path.exists(checkpoint_path):
         print(" Found previous run checkpoint. Loading metadata...")
         checkpoint = torch.load(checkpoint_path, map_location=cfg.device)
-        
+
         # Load the neural network and optimizer states
         gen.load_state_dict(checkpoint["generator_state_dict"])
         disc.load_state_dict(checkpoint["discriminator_state_dict"])
         opt_gen.load_state_dict(checkpoint["optimizer_G_state_dict"])
         opt_disc.load_state_dict(checkpoint["optimizer_D_state_dict"])
-        
+
         # Start at the NEXT epoch (current saved epoch + 1)
         start_epoch = checkpoint["epoch"] + 1
         return start_epoch
+    return 0
+
+
+def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
+    """
+    Captures the current state of generation vs real images.
+    Works for both standard GANs (gen_input = fixed noise) and SRGAN (gen_input = low-res images).
+    """
+    gen.eval()
+    with torch.inference_mode():
+        # 1. Generate fakes (Shape: N, 1, H, W)
+        fake = gen(gen_input).reshape(
+            -1, cfg.num_channels, cfg.image_size, cfg.image_size
+        )
+
+        # 2. Reshape real data (Shape: N, 1, H, W)
+        real = real_batch.reshape(-1, cfg.num_channels, cfg.image_size, cfg.image_size)
+
+        # 3. Convert both from 1-channel to 3-channel (RGB)
+        # This is necessary so the grid looks consistent in all viewers
+        fake_rgb = fake.expand(-1, 3, -1, -1)
+        real_rgb = real.expand(-1, 3, -1, -1)
+
+        # 4. Create grids using Torchvision's built-in normalization
+        # normalize=True: shifts the range to [0, 1]
+        # value_range=(-1, 1): tells the function our Tanh/Transform output is [-1, 1]
+        img_grid_fake = torchvision.utils.make_grid(
+            fake_rgb, nrow=8, normalize=True, value_range=(-1, 1)
+        )
+        img_grid_real = torchvision.utils.make_grid(
+            real_rgb, nrow=8, normalize=True, value_range=(-1, 1)
+        )
+        # 5. Log to TensorBoard
+        # writer.add_image("Images/Generated", img_grid_fake, global_step=epoch)
+        # writer.add_image("Images/Real", img_grid_real, global_step=epoch)
+        # --- Make grids ---
+
+        # --- Log to WandB ---
+        wandb.log(
+            {
+                "Generated Grid": wandb.Image(
+                    img_grid_fake, caption=f"epoch_{epoch:03d}"
+                ),
+                "Real Grid": wandb.Image(img_grid_real, caption=f"epoch_{epoch:03d}"),
+                "epoch": epoch,
+            },
+            commit=False,
+        )
+    gen.train()
+
+

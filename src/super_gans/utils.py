@@ -13,7 +13,7 @@ from torch.utils.data import ConcatDataset, Subset
 
 # Evaluation Metrics (Inline Validation & Final Benchmarks)
 from torchmetrics.image.fid import FrechetInceptionDistance
-from torchvision.utils import save_image
+from torchvision.utils import save_image, make_grid
 
 import super_gans.config as cfg
 from super_gans.data_handling import (
@@ -304,10 +304,10 @@ def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
         # 4. Create grids using Torchvision's built-in normalization
         # normalize=True: shifts the range to [0, 1]
         # value_range=(-1, 1): tells the function our Tanh/Transform output is [-1, 1]
-        img_grid_fake = torchvision.utils.make_grid(
+        img_grid_fake = make_grid(
             fake_rgb, nrow=8, normalize=True, value_range=(-1, 1)
         )
-        img_grid_real = torchvision.utils.make_grid(
+        img_grid_real = make_grid(
             real_rgb, nrow=8, normalize=True, value_range=(-1, 1)
         )
         # 5. Log to TensorBoard

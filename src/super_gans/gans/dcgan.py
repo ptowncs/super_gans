@@ -171,8 +171,10 @@ def training_loop(
 
         # --- FID CALCULATION AT END OF EPOCH ---
         if (epoch % cfg.fid_interval == 0) or (epoch == cfg.num_epochs - 1):
-            utils.save_model(gen, disc, opt_gen, opt_disc, epoch, filename="latest_gan.pth")
-            current_fid = utils.calculate_fid_sample(gen, loader, fid_metric)
+            utils.save_model(
+                gen, disc, opt_gen, opt_disc, epoch, filename="latest_gan.pth"
+            )
+            current_fid = metrics.compute_fid_from_images(gen, loader, fid_metric)
             fid_metric.reset()
 
             # VERIFIED FIX: Bundle 'epoch' into the dictionary and commit the full row to WandB
@@ -183,7 +185,9 @@ def training_loop(
             if current_fid < best_fid:
                 best_fid = current_fid
                 best_fid_epoch = epoch
-                utils.save_model(gen, disc, opt_gen, opt_disc, epoch, filename="best_gan.pth")
+                utils.save_model(
+                    gen, disc, opt_gen, opt_disc, epoch, filename="best_gan.pth"
+                )
         else:
             # VERIFIED FIX: Commits the losses and moves the custom timeline forward on non-FID epochs
             wandb.log({"epoch": epoch}, commit=True)
@@ -208,16 +212,10 @@ def uploadLogsAndMetricsToWandB(wandb):
     wandb.log_artifact(artifact)
 
 
-
-
-
-
-
-
 def createWandB():
     wandb.init(
         project="super-gans-project",
-        name="dcgan_run_1",
+        name="DC_GAN",
         config={
             "epochs": cfg.num_epochs,
             "batch_size": cfg.batch_size,
@@ -230,7 +228,7 @@ def createWandB():
     return wandb
 
 
-if __name__ == "__main__":
+def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
     # writer = SummaryWriter("logs/dcgan_run_1")
     wandb = createWandB()
     train_dataset = utils.load_data()
@@ -240,14 +238,18 @@ if __name__ == "__main__":
     opt_disc = optim.Adam(disc.parameters(), lr=cfg.lr, betas=cfg.betas)
     opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr, betas=cfg.betas)
 
-    # Check for existing checkpoint to resume training
-    start_epoch = utils.reload_checkpoint_model(gen, disc, opt_gen, opt_disc)
+    if restart:
+        # Check for existing checkpoint to resume training
+        start_epoch = utils.reload_checkpoint_model(gen, disc, opt_gen, opt_disc)
+
     if start_epoch == 0:
         print("Starting training from scratch")
     else:
         print(f"Resuming training from epoch {start_epoch}")
 
-    training_loop(disc, gen, opt_disc, opt_gen, train_dataset, wandb, start_epoch=start_epoch)
+    training_loop(
+        disc, gen, opt_disc, opt_gen, train_dataset, wandb, start_epoch=start_epoch
+    )
     utils.save_model(
         gen, disc, opt_gen, opt_disc, f"epoch:{cfg.num_epochs}", "dc_gan_checkpoint.pth"
     )
@@ -256,20 +258,11 @@ if __name__ == "__main__":
     generated_images_dir = f"{cfg.RESULTS_DIR}/fake_images_fid"
     fid_dataset = utils.build_fid_evaluation_dataset(cfg.num_images_fid_score)
     utils.save_images_fid(fid_dataset, real_images_dir)
-    best_model = utils.reload_checkpoint_model(gen, disc, opt_gen, opt_disc)  # Load best model for final eval
-    # Need to reload just the generator for final evaluation
-    if start_epoch > 0:  # If we resumed, we need to reload the best model properly
-        gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"
-        best_model_path = f"{gan_checkpoints_dir}/best_gan.pth"
-        try:
-            checkpoint = torch.load(best_model_path, map_location=cfg.device)
-            gen.load_state_dict(checkpoint["generator_state_dict"])
-            print(f"Loaded best model from epoch {checkpoint['epoch']}")
-        except Exception as e:
-            print(f"Failed to load best model: {e}")
-            # Fallback to just using current model
-            pass
-    utils.generate_images_fid(best_model, generated_images_dir)
+    # Need to reload just the generator for final evaluation - always load best model
+    gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"
+    best_model_path = f"{gan_checkpoints_dir}/best_gan.pth"
+    utils.load_best_model(gen, best_model_path)
+    utils.generate_images_fid(gen, generated_images_dir)
     fid_value = metrics.calc_fid_score(real_images_dir, generated_images_dir)
     kid_mean, kid_std = metrics.calc_kid_score(real_images_dir, generated_images_dir)
     print(f"FID score: {fid_value}")
@@ -281,3 +274,7 @@ if __name__ == "__main__":
     wandb.run.summary["final_kid_mean"] = kid_mean
     wandb.run.summary["final_kid_std"] = kid_std
     wandb.finish()
+
+
+if __name__ == "__main__":
+    main()

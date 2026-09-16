@@ -69,6 +69,7 @@ class UpsampleBlock(nn.Module):
 
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels):
+        super().__init__()
         self.block1 = ConvBlock(in_channels, in_channels, kernel_size=3, stride=1, padding=1)
         self.block2 = ConvBlock(in_channels, in_channels, kernel_size=3, stride=1, padding=1, use_act=False)
 
@@ -209,7 +210,8 @@ def training_loop(loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wand
         # --- FID CALCULATION AT END OF EPOCH ---
         if (epoch % cfg.fid_interval == 0) or (epoch == cfg.num_epochs - 1):
             utils.save_model(gen, disc, opt_gen, opt_disc, epoch, filename="latest_gan.pth")
-            current_fid = calculate_fid_sample(gen, loader, fid_metric)
+            # Swap loader to yield (high_res, low_res) for FID calculation: (real, generator_input)
+            current_fid = metrics.compute_fid_from_real_and_input(gen, ((high_res, low_res) for low_res, high_res in loader), fid_metric)
             fid_metric.reset()
 
             wandb.log({"Metrics/FID": current_fid, "epoch": epoch}, commit=True)
@@ -240,53 +242,11 @@ def uploadLogsAndMetricsToWandB(wandb):
     artifact.add_file(file_path)
     wandb.log_artifact(artifact)
 
-def calculate_fid_sample(gen, loader, fid_metric):
-    """
-    Standalone FID calculation for SR-GAN.
-    Compares high-res ground truth images against generated super-res images.
-    """
-    gen.eval()
-    fid_metric.reset()
-    
-    assert cfg.num_images_fid_sample % cfg.batch_size == 0, "FID sample count must be divisible by batch size"
-    batch_size = cfg.batch_size
-    n_batches = cfg.num_images_fid_sample // batch_size
-    data_iter = iter(loader)
-
-    fid_metric = fid_metric.to(cfg.device)
-    
-    with torch.inference_mode():
-        for _ in range(n_batches):
-            try:
-                low_res_batch, high_res_batch = next(data_iter)
-            except StopIteration:
-                data_iter = iter(loader)
-                low_res_batch, high_res_batch = next(data_iter)
-                
-            low_res_batch = low_res_batch[:batch_size].to(cfg.device)
-            high_res_batch = high_res_batch[:batch_size].to(cfg.device)
-           
-            # 1. Process High-Res (Real) Images
-            real_rgb = (high_res_batch.expand(batch_size, 3, -1, -1) + 1.0) / 2.0
-            fid_metric.update(real_rgb, real=True)
-
-            # 2. Process Super-Res (Fake) Images mapping low-res straight to generator
-            fake_batch = gen(low_res_batch)
-            fake_rgb = (fake_batch.expand(batch_size, 3, -1, -1) + 1.0) / 2.0
-            fid_metric.update(fake_rgb, real=False)
-
-    fid_score_val = fid_metric.compute().item()
-
-    if cfg.device == 'cuda':
-        torch.cuda.empty_cache()
-
-    gen.train()
-    return fid_score_val
 
 def createWandB():
     wandb.init(
         project="super-gans-project",
-        name="dcgan_run_1",
+        name="SR_GAN",
         config={
             "epochs": cfg.num_epochs,
             "batch_size": cfg.batch_size,
@@ -379,7 +339,7 @@ def generate_images_fid(generator, dataset, generated_images_dir, batch_size=128
 
     print(f"Successfully generated and saved {images_saved} images to {generated_images_dir}/")
 
-def main():
+def main(restart=False, best_fid=float('inf'), best_fid_epoch=0):
     wandb = createWandB()
     loader = DataLoader(load_datapairs(), batch_size=cfg.batch_size, shuffle=True, num_workers=cfg.num_workers, pin_memory=True)
     gen = Generator(in_channels=cfg.num_channels).to(cfg.device)
@@ -390,8 +350,10 @@ def main():
     bce = nn.BCEWithLogitsLoss()
     vgg_loss = VGGLoss()
 
-    # Check for existing checkpoint to resume training
-    start_epoch = utils.reload_checkpoint_model(gen, disc, opt_gen, opt_disc)
+    if(restart):
+        # Check for existing checkpoint to resume training
+        start_epoch = utils.reload_checkpoint_model(gen, disc, opt_gen, opt_disc)
+
     if start_epoch == 0:
         print("Starting training from scratch")
     else:
@@ -404,20 +366,11 @@ def main():
     generated_images_dir = f"{cfg.RESULTS_DIR}/fake_images_fid"
     fid_dataset = utils.build_fid_evaluation_dataset(load_fn=load_datapairs, target_samples=cfg.num_images_fid_score)
     utils.save_images_fid(fid_dataset, real_images_dir)
-    best_model = utils.reload_checkpoint_model(gen, disc, opt_gen, opt_disc)  # Load best model for final eval
-    # Need to reload just the generator for final evaluation
-    if start_epoch > 0:  # If we resumed, we need to reload the best model properly
-        gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"
-        best_model_path = f"{gan_checkpoints_dir}/best_gan.pth"
-        try:
-            checkpoint = torch.load(best_model_path, map_location=cfg.device)
-            gen.load_state_dict(checkpoint["generator_state_dict"])
-            print(f"Loaded best model from epoch {checkpoint['epoch']}")
-        except Exception as e:
-            print(f"Failed to load best model: {e}")
-            # Fallback to just using current model
-            pass
-    generate_images_fid(best_model, fid_dataset, generated_images_dir, batch_size=cfg.batch_size)
+    # Need to reload just the generator for final evaluation - always load best model
+    gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"
+    best_model_path = f"{gan_checkpoints_dir}/best_gan.pth"
+    utils.load_best_model(gen, best_model_path)
+    generate_images_fid(gen, fid_dataset, generated_images_dir, batch_size=cfg.batch_size)
     fid_value = metrics.calc_fid_score(real_images_dir, generated_images_dir)
     kid_mean, kid_std = metrics.calc_kid_score(real_images_dir, generated_images_dir)
     print(f"FID score: {fid_value}")

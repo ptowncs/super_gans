@@ -165,23 +165,6 @@ def generate_images_fid(generator, generated_images_dir, batch_size=128):
 
     print(f"Successfully generated and saved {images_saved} images to {generated_images_dir}/")
 
-def calc_fid_score(real_images_dir, generated_images_dir):
-    # Paths to your image directories
-    print(f"Path being checked:{repr(real_images_dir)}")
-    if not os.path.exists(real_images_dir):
-        raise ValueError(f"Real image path not found: {real_images_dir}")
-    if not os.path.exists(generated_images_dir):
-        raise ValueError(f"Generated image path not found: {generated_images_dir}")
-
-    # (Make sure to populate `real_images` with your actual dataset)
-    # Calculate FID
-    fid_value = fid_score.calculate_fid_given_paths(
-        [real_images_dir, generated_images_dir],
-        batch_size=50,  # Adjust batch size based on available GPU memory
-        device = cfg.device,
-        dims= cfg.fid_dims,  # Inception v3 output dimension
-    )
-    return fid_value
 
 def calculate_fid_sample(gen, loader, fid_metric):
     """
@@ -267,6 +250,21 @@ def reload_checkpoint_model(gen, disc, opt_gen, opt_disc):
         start_epoch = checkpoint["epoch"] + 1
         return start_epoch
     return 0
+
+
+def load_best_model(gen, checkpoint_path):
+    """
+    Load the best model generator state dict from the given checkpoint path into the provided generator.
+    If loading fails, prints an error and leaves the generator unchanged.
+    """
+    try:
+        checkpoint = torch.load(checkpoint_path, map_location=cfg.device)
+        gen.load_state_dict(checkpoint["generator_state_dict"])
+        print(f"Loaded best model from epoch {checkpoint['epoch']}")
+    except Exception as e:
+        print(f"Failed to load best model from {checkpoint_path}: {e}")
+        # Fallback to just using current model
+        pass
 
 
 def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):

@@ -5,6 +5,7 @@ Metrics computation functions for FID and KID evaluation.
 import os
 import torch
 from torchmetrics.image.kid import KernelInceptionDistance
+from torchmetrics.image.fid import FrechetInceptionDistance
 from torchvision.datasets import ImageFolder
 from torchvision import transforms
 from torch.utils.data import DataLoader
@@ -79,3 +80,67 @@ def calc_kid_score(real_images_dir, generated_images_dir, subset_size=100):
 
     kid_mean, kid_std = kid_metric.compute()
     return kid_mean.item(), kid_std.item()
+
+
+def compute_fid_from_real_and_input(gen, loader, fid_metric):
+    """
+    Computes FID score by comparing real images from the loader
+    with generated images from the generator.
+    Expects loader to yield tuples of (real_images, generator_input).
+    """
+    gen.eval()
+    fid_metric.reset()
+
+    # Calculate how many batches we need to reach num_samples
+    assert cfg.num_images_fid_sample % cfg.batch_size == 0, "FID sample count must be divisible by batch size"
+    batch_size = cfg.batch_size
+    n_batches = cfg.num_images_fid_sample // batch_size
+    data_iter = iter(loader)
+
+    # Ensure the metric is on the correct device
+    fid_metric = fid_metric.to(cfg.device)
+
+    with torch.inference_mode():
+        for _ in range(n_batches):
+            # --- 1. Process Real Images ---
+            try:
+                real_batch, gen_input_batch = next(data_iter)
+            except StopIteration:
+                data_iter = iter(loader)
+                real_batch, gen_input_batch = next(data_iter)
+
+            real_batch = real_batch[:batch_size].to(cfg.device)
+            gen_input_batch = gen_input_batch[:batch_size].to(cfg.device)
+
+            # Map [-1, 1] -> [0, 1] and expand grayscale to 3 channels
+            real_rgb = (real_batch.expand(batch_size, 3, -1, -1) + 1.0) / 2.0
+
+            fid_metric.update(real_rgb, real=True)
+
+            # --- 2. Process Fake Images ---
+            fake_batch = gen(gen_input_batch)
+            fake_rgb = (fake_batch.expand(batch_size, 3, -1, -1) + 1.0) / 2.0
+
+            fid_metric.update(fake_rgb, real=False)
+
+        # --- 3. Compute and Log ---
+        fid_score = fid_metric.compute().item()
+
+        if cfg.device == 'cuda':
+            torch.cuda.empty_cache()
+
+        gen.train()
+        return fid_score
+
+
+def compute_fid_from_images(gen, loader, fid_metric):
+    """
+    Computes FID score using a standard data loader (yielding only real images).
+    Wraps the loader to provide noise as generator input for standard GANs.
+    """
+    def wrapped_loader():
+        for real_batch, _ in loader:  # Assuming loader yields (image, label) or similar
+            noise = torch.randn(real_batch.size(0), cfg.z_dim, device=cfg.device)
+            yield noise, real_batch
+
+    return compute_fid_from_real_and_input(gen, wrapped_loader(), fid_metric)

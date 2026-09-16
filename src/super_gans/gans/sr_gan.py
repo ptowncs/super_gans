@@ -22,6 +22,7 @@ from tqdm import tqdm
 import super_gans.config as cfg
 import wandb
 from super_gans import utils
+from super_gans import metrics
 
 # Force cuDNN to use a deterministic algorithm instead of searching
 #torch.backends.cudnn.benchmark = False
@@ -417,11 +418,15 @@ def main():
             # Fallback to just using current model
             pass
     generate_images_fid(best_model, fid_dataset, generated_images_dir, batch_size=cfg.batch_size)
-    fid_value = utils.calc_fid_score(real_images_dir, generated_images_dir)
+    fid_value = metrics.calc_fid_score(real_images_dir, generated_images_dir)
+    kid_mean, kid_std = metrics.calc_kid_score(real_images_dir, generated_images_dir)
     print(f"FID score: {fid_value}")
+    print(f"KID mean: {kid_mean:.6f}, KID std: {kid_std:.6f}")
     uploadLogsAndMetricsToWandB(wandb)
     # Log final metrics
     wandb.run.summary["final_fid"] = fid_value
+    wandb.run.summary["final_kid_mean"] = kid_mean
+    wandb.run.summary["final_kid_std"] = kid_std
     wandb.finish()
 
 if __name__ == '__main__':

@@ -8,10 +8,11 @@ from torchmetrics.image.kid import KernelInceptionDistance
 from torchmetrics.image.fid import FrechetInceptionDistance
 from torchvision.datasets import ImageFolder
 from torchvision import transforms
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 import super_gans.config as cfg
 from pytorch_fid import fid_score
+from PIL import Image
 
 
 def calc_fid_score(real_images_dir, generated_images_dir):
@@ -45,7 +46,7 @@ def calc_fid_score(real_images_dir, generated_images_dir):
 def calc_kid_score(real_images_dir, generated_images_dir, subset_size=100):
     """
     Compute KID (Kernel Inception Distance) between two directories of images.
-    Uses torchmetrics.KernelInceptionDistance.
+    Works with flat directories (no class subfolders required).
 
     Args:
         real_images_dir: Path to directory with real images
@@ -60,8 +61,30 @@ def calc_kid_score(real_images_dir, generated_images_dir, subset_size=100):
         transforms.ToTensor(),
     ])
 
-    real_dataset = ImageFolder(real_images_dir, transform=transform)
-    generated_dataset = ImageFolder(generated_images_dir, transform=transform)
+    class FlatFolderDataset(Dataset):
+        # Custom dataset to avoid ImageFolder's requirement for class subfolders
+        def __init__(self, root, transform=None):
+            self.root = root
+            self.transform = transform
+            self.paths = [
+                os.path.join(root, f)
+                for f in os.listdir(root)
+                if f.lower().endswith(('.png', '.jpg', '.jpeg', '.tif', '.tiff'))
+            ]
+
+        def __len__(self):
+            return len(self.paths)
+
+        def __getitem__(self, idx):
+            path = self.paths[idx]
+            image = Image.open(path).convert('RGB')
+            if self.transform:
+                image = self.transform(image)
+            # Return a dummy label; KID metric only needs the image tensor.
+            return image, 0
+
+    real_dataset = FlatFolderDataset(real_images_dir, transform=transform)
+    generated_dataset = FlatFolderDataset(generated_images_dir, transform=transform)
 
     real_loader = DataLoader(real_dataset, batch_size=cfg.batch_size, shuffle=False)
     generated_loader = DataLoader(generated_dataset, batch_size=cfg.batch_size, shuffle=False)

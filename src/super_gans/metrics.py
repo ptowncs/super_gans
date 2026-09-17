@@ -56,9 +56,10 @@ def calc_kid_score(real_images_dir, generated_images_dir, subset_size=100):
     Returns:
         tuple: (kid_mean, kid_std) - KID mean and standard deviation
     """
-    # Define the transform: convert PIL image to tensor in [0, 1]
+    # Define the transform: convert PIL image to tensor in [0, 255] as uint8 for KID metric
     transform = transforms.Compose([
         transforms.ToTensor(),
+        transforms.Lambda(lambda x: (x * 255).to(torch.uint8))
     ])
 
     class FlatFolderDataset(Dataset):
@@ -89,7 +90,7 @@ def calc_kid_score(real_images_dir, generated_images_dir, subset_size=100):
     real_loader = DataLoader(real_dataset, batch_size=cfg.batch_size, shuffle=False)
     generated_loader = DataLoader(generated_dataset, batch_size=cfg.batch_size, shuffle=False)
 
-    kid_metric = KernelInceptionDistance(subset_size=subset_size).to(cfg.device)
+    kid_metric = KernelInceptionDistance(subset_size=subset_size, normalize=False).to(cfg.device)
 
     # Process real images
     for batch in real_loader:

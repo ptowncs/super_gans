@@ -116,60 +116,53 @@ def load_data(split="train"):
     print(f"Loaded {len(dataset)} images for {split} split from {data_source} dataset")
     return dataset
 
-def build_fid_evaluation_dataset(load_fn=load_data, target_samples=5000):
+def build_fid_evaluation_dataset(load_fn=load_data):
+    # Load training and validation datasets to get counts for logging
+    train_ds = load_fn(split="train")
     val_ds = load_fn(split="val")
-    test_ds = load_fn(split="test")
-    
-    eval_ds = ConcatDataset([val_ds, test_ds])
-    current_count = len(eval_ds)
-    print(f"Val + Test images: {current_count}")
-    
-    if current_count < target_samples:
-        needed = target_samples - current_count
-        print(f"Pulling the exact same {needed} sequential images from Train split...")
-        
-        train_ds = load_fn(split="train")
-        
-        # Always pick indices 0 to needed (guarantees the same images every time)
-        deterministic_indices = list(range(needed))
-        train_supplement = Subset(train_ds, deterministic_indices)
-        
-        eval_ds = ConcatDataset([eval_ds, train_supplement])
-        
-    print(f"Final reproducible FID dataset complete with {len(eval_ds)} images.")
-    return eval_ds
 
-def save_images_fid(dataset, to_dir):
+    train_count = len(train_ds)
+    val_count = len(val_ds)
+
+    # Log dataset summary to console
+    print(f"FID Evaluation Dataset Summary:")
+    print(f"  Training images: {train_count}")
+    print(f"  Validation images: {val_count} (used for FID evaluation to prevent data leakage)")
+
+    # Return validation dataset for FID evaluation (using only validation prevents data leakage)
+    return val_ds
+
+def save_real_images_metrics(dataset, to_dir):
     os.makedirs(to_dir, exist_ok=True)
-    for i in range(min(cfg.num_images_fid_score, len(dataset))):
+    for i in range(len(dataset)):
         image, _ = dataset[i]  # image is a tensor in shape (1, 64, 64)
 
         # Convert grayscale -> RGB by repeating channels
         image_rgb = image.repeat(3, 1, 1)
         filename = os.path.join(to_dir, f"pneumonia_{i:04d}.png")
-        # Generator uses Tanh (outputting [-1, 1]), ensure normalize=True and value_range=(-1, 1) 
+        # Generator uses Tanh (outputting [-1, 1]), ensure normalize=True and value_range=(-1, 1)
         # so the PNGs are stored as standard [0, 255] pixel values correctly.
         save_image(image_rgb, filename, normalize=True, value_range=(-1, 1))
 
     print(
-        f"Saved {min(cfg.num_images_fid_score, len(dataset))} real Pneumonia images to {to_dir}/"
+        f"Saved {len(dataset)} real images to {to_dir}/"
     )
 
-def generate_images_fid(generator, generated_images_dir, batch_size=128):
+def generate_images_metrics(generator, generated_images_dir, num_images, batch_size=128):
     os.makedirs(generated_images_dir, exist_ok=True)
     generator.eval() # Ensure evaluation mode
-    
+
     images_saved = 0
     # Process in smaller chunks to prevent CUDA OOM
-    while images_saved < cfg.num_images_fid_score:
-        current_batch = min(batch_size, cfg.num_images_fid_score - images_saved)
-        
+    while images_saved < num_images:
+        current_batch = min(batch_size, num_images - images_saved)
+
         gen_noise = torch.randn(current_batch, cfg.z_dim).to(cfg.device)
-        
+
         with torch.inference_mode():
             # If generator is wrapped in DataParallel, use generator.module or handle normally
             generated_images = generator(gen_noise)
-            
+
         for img in generated_images:
             # Convert Grayscale -> RGB to match the real images directory
             image_rgb = img.repeat(3, 1, 1)

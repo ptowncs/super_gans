@@ -236,7 +236,7 @@ def training_loop(loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wand
 
 def uploadLogsAndMetricsToWandB(wandb):
     # Upload model
-    artifact = wandb.Artifact("dc-gan-model", type="model")
+    artifact = wandb.Artifact("sr-gan-model", type="model")
     gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"
     file_path = f"{gan_checkpoints_dir}/best_gan.pth"
     artifact.add_file(file_path)
@@ -288,56 +288,19 @@ def load_datapairs(split="train"):
     dataset = DataSetWithHiResLowResPair(root_dir=f"{chest_xray_ds}/{split}")
     return dataset
 
-def save_images_fid(dataset, to_dir):
-    os.makedirs(to_dir, exist_ok=True)
-    for i in range(min(cfg.num_images_fid_score, len(dataset))):
-        # Unpack the paired dataset: we want the high_res ground truth image
-        low_res, high_res = dataset[i]
+# Wrapper class to adapt SRGAN dataset for saving real images (expects (image, label) format)
+class SRGANRealImageWrapper:
+    def __init__(self, sr_dataset):
+        self.sr_dataset = sr_dataset
 
-        # Convert grayscale -> RGB by repeating channels
-        image_rgb = high_res.repeat(3, 1, 1)
-        filename = os.path.join(to_dir, f"pneumonia_{i:04d}.png")
+    def __len__(self):
+        return len(self.sr_dataset)
 
-        # Saves the ground truth target scaled correctly
-        save_image(image_rgb, filename, normalize=True, value_range=(-1, 1))
-
-    print(
-        f"Saved {min(cfg.num_images_fid_score, len(dataset))} real high-res Pneumonia images to {to_dir}/"
-    )
-
-def generate_images_fid(generator, dataset, generated_images_dir, batch_size=128):
-    os.makedirs(generated_images_dir, exist_ok=True)
-    generator.eval()
-
-    # Use a simple dataloader to stream low-res inputs in chunks
-    eval_loader = torch.utils.data.DataLoader(
-        dataset, batch_size=batch_size, shuffle=False, drop_last=False
-    )
-
-    images_saved = 0
-
-    with torch.inference_mode():
-        for low_res_batch, _ in eval_loader:
-            # Safety check to stop exactly at your requested evaluation count
-            if images_saved >= cfg.num_images_fid_score:
-                break
-
-            low_res_batch = low_res_batch.to(cfg.device)
-
-            # Generate super-resolution images using the low-res inputs
-            generated_images = generator(low_res_batch)
-
-            for img in generated_images:
-                if images_saved >= cfg.num_images_fid_score:
-                    break
-
-                # Convert Grayscale -> RGB to match the real images directory
-                image_rgb = img.repeat(3, 1, 1)
-                filename = os.path.join(generated_images_dir, f"generated_image_{images_saved:04d}.png")
-                save_image(image_rgb, filename, normalize=True, value_range=(-1, 1))
-                images_saved += 1
-
-    print(f"Successfully generated and saved {images_saved} images to {generated_images_dir}/")
+    def __getitem__(self, idx):
+        # SRGAN dataset returns (low_res, high_res)
+        # We want to save the high_res as the image, with a dummy label
+        low_res, high_res = self.sr_dataset[idx]
+        return high_res, 0  # (image, label) format
 
 def main(restart=False, best_fid=float('inf'), best_fid_epoch=0):
     start_epoch = 0
@@ -366,13 +329,20 @@ def main(restart=False, best_fid=float('inf'), best_fid_epoch=0):
 
     real_images_dir = f"{cfg.RESULTS_DIR}/real_images_fid"
     generated_images_dir = f"{cfg.RESULTS_DIR}/fake_images_fid"
-    fid_dataset = utils.build_fid_evaluation_dataset(load_fn=load_datapairs, target_samples=cfg.num_images_fid_score)
-    utils.save_images_fid(fid_dataset, real_images_dir)
+    validation_dataset = utils.build_fid_evaluation_dataset(load_fn=load_datapairs)
+    real_count = len(validation_dataset)
+    # Log dataset sizes to WandB
+    wandb.log({
+        "dataset/train_size": len(utils.load_data(split="train")),
+        "dataset/validation_size": real_count,
+        "dataset/epoch": 0  # Log at epoch 0 for final evaluation
+    }, commit=True)
+    utils.save_real_images_metrics(SRGANRealImageWrapper(validation_dataset), real_images_dir)
     # Need to reload just the generator for final evaluation - always load best model
     gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"
     best_model_path = f"{gan_checkpoints_dir}/best_gan.pth"
     utils.load_best_model(gen, best_model_path)
-    generate_images_fid(gen, fid_dataset, generated_images_dir, batch_size=cfg.batch_size)
+    utils.generate_images_metrics(gen, validation_dataset, generated_images_dir, cfg.num_images_fid_score)
     fid_value = metrics.calc_fid_score(real_images_dir, generated_images_dir)
     kid_mean, kid_std = metrics.calc_kid_score(real_images_dir, generated_images_dir)
     print(f"FID score: {fid_value}")

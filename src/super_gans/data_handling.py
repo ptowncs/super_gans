@@ -102,14 +102,14 @@ def get_kaggle_image_paths(data_dir="./data/kaggle"):
 
     pneumonia_train_path = chest_xray_path / "train" / "PNEUMONIA"
     if pneumonia_train_path.exists():
-        for ext in ["*.jpg", "*.jpeg", ".png", ".tif", ".tiff"]:
+        for ext in ["*.jpg", "*.jpeg", "*.png", "*.tif", "*.tiff"]:
             pneumonia_paths.extend(list(pneumonia_train_path.glob(ext)))
     else:
         raise FileNotFoundError(f"Could not find pneumonia images in Kaggle dataset at {pneumonia_train_path}")
 
     pneumonia_val_path = chest_xray_path / "val" / "PNEUMONIA"
     if pneumonia_val_path.exists():
-        for ext in ["*.jpg", "*.jpeg", ".png", ".tif", ".tiff"]:
+        for ext in ["*.jpg", "*.jpeg", "*.png", "*.tif", "*.tiff"]:
             val_pneumonia_paths = list(pneumonia_val_path.glob(ext))
             pneumonia_paths.extend(val_pneumonia_paths)
 

@@ -258,13 +258,20 @@ def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
 
     real_images_dir = f"{cfg.RESULTS_DIR}/real_images_fid"
     generated_images_dir = f"{cfg.RESULTS_DIR}/fake_images_fid"
-    fid_dataset = utils.build_fid_evaluation_dataset(target_samples=cfg.num_images_fid_score)
-    utils.save_images_fid(fid_dataset, real_images_dir)
+    validation_dataset = utils.build_fid_evaluation_dataset()
+    real_count = len(validation_dataset)
+    # Log dataset sizes to WandB
+    wandb.log({
+        "dataset/train_size": len(utils.load_data(split="train")),
+        "dataset/validation_size": real_count,
+        "dataset/epoch": 0  # Log at epoch 0 for final evaluation
+    }, commit=True)
+    utils.save_real_images_metrics(validation_dataset, real_images_dir)
     # Need to reload just the generator for final evaluation - always load best model
     gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"
     best_model_path = f"{gan_checkpoints_dir}/best_gan.pth"
     utils.load_best_model(gen, best_model_path)
-    utils.generate_images_fid(gen, generated_images_dir)
+    utils.generate_images_metrics(gen, generated_images_dir, cfg.num_images_fid_score)
     fid_value = metrics.calc_fid_score(real_images_dir, generated_images_dir)
     kid_mean, kid_std = metrics.calc_kid_score(real_images_dir, generated_images_dir)
     print(f"FID score: {fid_value}")

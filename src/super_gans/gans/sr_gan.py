@@ -262,30 +262,30 @@ def load_datapairs(split="train"):
     class DataSetWithHiResLowResPair(Dataset):
         def __init__(self, root_dir):
             super().__init__()
-            self.data = []
             self.root_dir = root_dir
-            self.class_names = os.listdir(root_dir)
-
-            for index, name in enumerate(self.class_names):
-                files = os.listdir(os.path.join(root_dir, name))
-                self.data += list(zip(files, [index] * len(files)))
+            self.data = []
+            # Get all image files in the directory (flattened structure)
+            valid_extensions = [".jpg", ".jpeg", ".png", ".tif", ".tiff"]
+            for f in os.listdir(root_dir):
+                if any(f.lower().endswith(ext) for ext in valid_extensions):
+                    self.data.append(f)
 
         def __len__(self):
             return len(self.data)
 
         def __getitem__(self, index):
-            img_file, label = self.data[index]
-            root_and_dir = os.path.join(self.root_dir, self.class_names[label])
+            img_file = self.data[index]
+            root_and_dir = os.path.join(self.root_dir, img_file)
             # Fix: Force image to 1-channel Grayscale ("L" mode) right after opening
-            image = np.array(Image.open(os.path.join(root_and_dir, img_file)).convert("L"))
+            image = np.array(Image.open(root_and_dir).convert("L"))
             image = cfg.both_transforms(image=image)["image"]
             high_res = cfg.high_res_transform(image=image)["image"]
             low_res = cfg.low_res_transform(image=image)["image"]
             return low_res, high_res
 
-    dataset_path = utils.get_dataset_path("paultimothymooney/chest-xray-pneumonia/versions/2")
-    chest_xray_ds =  f"{dataset_path}/chest_xray"
-    dataset = DataSetWithHiResLowResPair(root_dir=f"{chest_xray_ds}/{split}")
+    split_dir = f"{cfg.DATA_DIR}/split"
+    root_dir = f"{split_dir}/{split}"
+    dataset = DataSetWithHiResLowResPair(root_dir=root_dir)
     return dataset
 
 # Wrapper class to adapt SRGAN dataset for saving real images (expects (image, label) format)

@@ -165,6 +165,6 @@ def compute_fid_from_images(gen, loader, fid_metric):
     def wrapped_loader():
         for real_batch, _ in loader:  # Assuming loader yields (image, label) or similar
             noise = torch.randn(real_batch.size(0), cfg.z_dim, device=cfg.device)
-            yield noise, real_batch
+            yield real_batch, noise
 
     return compute_fid_from_real_and_input(gen, wrapped_loader(), fid_metric)

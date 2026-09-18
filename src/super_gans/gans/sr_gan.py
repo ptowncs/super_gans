@@ -259,34 +259,40 @@ def createWandB():
     return wandb
 
 def load_datapairs(split="train"):
-    class DataSetWithHiResLowResPair(Dataset):
-        def __init__(self, root_dir):
+    # Load the base dataset using the standard data loading mechanism
+    # This handles both Kaggle and RSNA datasets correctly
+    base_dataset = utils.load_data(split=split)
+
+    class SRGANDatasetWrapper(Dataset):
+        def __init__(self, dataset):
             super().__init__()
-            self.root_dir = root_dir
-            self.data = []
-            # Get all image files in the directory (flattened structure)
-            valid_extensions = [".jpg", ".jpeg", ".png", ".tif", ".tiff"]
-            for f in os.listdir(root_dir):
-                if any(f.lower().endswith(ext) for ext in valid_extensions):
-                    self.data.append(f)
+            self.dataset = dataset
 
         def __len__(self):
-            return len(self.data)
+            return len(self.dataset)
 
         def __getitem__(self, index):
-            img_file = self.data[index]
-            root_and_dir = os.path.join(self.root_dir, img_file)
-            # Fix: Force image to 1-channel Grayscale ("L" mode) right after opening
-            image = np.array(Image.open(root_and_dir).convert("L"))
-            image = cfg.both_transforms(image=image)["image"]
-            high_res = cfg.high_res_transform(image=image)["image"]
-            low_res = cfg.low_res_transform(image=image)["image"]
+            # Get the image from the base dataset (returns image, label)
+            # We ignore the label for SR-GAN training
+            image_tensor, _ = self.dataset[index]
+
+            # Convert tensor to numpy array in [0, 255] range for albumentations
+            # The image tensor is in shape (C, H, W) with values in [-1, 1]
+            image_np = image_tensor.permute(1, 2, 0).cpu().numpy()
+            image_np = ((image_np + 1.0) * 127.5).astype(np.uint8)
+
+            # Apply transforms to get low-res and high-res versions
+            # both_transforms includes resizing, horizontal flip, affine transform
+            transformed = cfg.both_transforms(image=image_np)
+            transformed_image = transformed["image"]
+
+            # Get high-res and low-res versions
+            high_res = cfg.high_res_transform(image=transformed_image)["image"]
+            low_res = cfg.low_res_transform(image=transformed_image)["image"]
+
             return low_res, high_res
 
-    split_dir = f"{cfg.DATA_DIR}/split"
-    root_dir = f"{split_dir}/{split}"
-    dataset = DataSetWithHiResLowResPair(root_dir=root_dir)
-    return dataset
+    return SRGANDatasetWrapper(base_dataset)
 
 # Wrapper class to adapt SRGAN dataset for saving real images (expects (image, label) format)
 class SRGANRealImageWrapper:

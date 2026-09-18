@@ -66,7 +66,7 @@ def load_data(split="train"):
     Assumes data has been prepared via prepare_data().
     """
     data_source = cfg.DATA_SOURCE.lower()
-    split_dir = "./data/split"
+    split_dir = Path("./data/split").resolve()  # Make absolute to avoid cwd issues
     transforms_pipeline = get_transforms_pipeline()
 
     if data_source == 'kaggle':

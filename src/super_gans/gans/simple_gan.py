@@ -87,7 +87,7 @@ def training_loop(
     # Setup CSV logging
     train_csv_path = utils.setup_training_csv("simple_gan")
 
-    for epoch in range(cfg.num_epochs):
+    for epoch in range(start_epoch, cfg.num_epochs):
         process = psutil.Process(os.getpid())
         print(
             f"Epoch: {epoch} | RAM GB: {process.memory_info().rss / 1024**3:.2f} \
@@ -192,7 +192,7 @@ def training_loop(
     wandb.summary["Best FID Epoch"] = best_fid_epoch
     wandb.summary["Best FID Score"] = best_fid
 
-    return opt_disc, opt_gen
+    return opt_disc, opt_gen, best_fid, best_fid_epoch
 
 
 def uploadLogsAndMetricsToWandB(wandb):
@@ -244,8 +244,8 @@ def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
     else:
         print(f"Resuming training from epoch {start_epoch}")
 
-    training_loop(disc, gen, opt_disc, opt_gen, train_dataset, wandb,
-                  start_epoch, best_fid, best_fid_epoch)
+    opt_disc, opt_gen, best_fid, best_fid_epoch = training_loop(disc, gen, opt_disc, opt_gen, train_dataset, wandb,
+                                                                start_epoch, best_fid, best_fid_epoch)
     utils.save_model(gen, disc, opt_gen, opt_disc, f"epoch:{cfg.num_epochs}", "simple_gan_checkpoint.pth")
 
     real_images_dir = cfg.FID_REAL_DIR

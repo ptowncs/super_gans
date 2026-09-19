@@ -245,6 +245,8 @@ def training_loop(loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wand
     wandb.summary["Best FID Epoch"] = best_fid_epoch
     wandb.summary["Best FID Score"] = best_fid
 
+    return opt_disc, opt_gen, best_fid, best_fid_epoch
+
 def uploadLogsAndMetricsToWandB(wandb):
     # Upload model
     artifact = wandb.Artifact("sr-gan-model", type="model")
@@ -341,7 +343,7 @@ def main(restart=False, best_fid=float('inf'), best_fid_epoch=0):
     else:
         print(f"Resuming training from epoch {start_epoch}")
 
-    training_loop(loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wandb, start_epoch=start_epoch)
+    opt_disc, opt_gen, best_fid, best_fid_epoch = training_loop(loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wandb, start_epoch=start_epoch)
     utils.save_model(gen, disc, opt_gen, opt_disc, f"epoch:{cfg.num_epochs}", "sr_gan_checkpoint.pth")
 
     real_images_dir = cfg.FID_REAL_DIR

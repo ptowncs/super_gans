@@ -1,5 +1,6 @@
 import gc  # Good practice for cleaning memory during training
 import os
+import csv  # For CSV logging
 from pathlib import Path
 
 import psutil  # Used for RAM tracking print statements
@@ -291,8 +292,8 @@ def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
 
         # 3. Convert both from 1-channel to 3-channel (RGB)
         # This is necessary so the grid looks consistent in all viewers
-        fake_rgb = fake.expand(-1, 3, -1, -1)
-        real_rgb = real.expand(-1, 3, -1, -1)
+        fake_rgb = fake.repeat(1, 3, 1, 1)
+        real_rgb = real.repeat(1, 3, 1, 1)
 
         # 4. Create grids using Torchvision's built-in normalization
         # normalize=True: shifts the range to [0, 1]

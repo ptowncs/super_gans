@@ -246,8 +246,8 @@ def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
                   start_epoch, best_fid, best_fid_epoch)
     utils.save_model(gen, disc, opt_gen, opt_disc, f"epoch:{cfg.num_epochs}", "simple_gan_checkpoint.pth")
 
-    real_images_dir = f"{cfg.RESULTS_DIR}/real_images_fid"
-    generated_images_dir = f"{cfg.RESULTS_DIR}/fake_images_fid"
+    real_images_dir = cfg.FID_REAL_DIR
+    generated_images_dir = cfg.FID_FAKE_DIR
     validation_dataset = utils.build_fid_evaluation_dataset()
     real_count = len(validation_dataset)
     # Log dataset sizes to WandB

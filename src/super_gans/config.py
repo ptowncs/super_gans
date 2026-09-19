@@ -32,8 +32,22 @@ else:
 print(f"Project Path: {PROJECT_PATH}")
 print(f"Drive Path: {DRIVE_PATH}")
 
+# Set base for temporary directories (data, fid_real, fid_fake)
+if IN_KAGGLE:
+    TEMP_BASE = "/tmp/super_gans"
+else:
+    TEMP_BASE = DRIVE_PATH  # Local/Colab uses the project root for temporary data
+
+# Create temporary subdirectories
+for subdir in ["data", "fid_real", "fid_fake"]:
+    os.makedirs(f"{TEMP_BASE}/{subdir}", exist_ok=True)
+
 timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-DATA_DIR = f"{DRIVE_PATH}/data"
+# Temporary directories for data and FID images (to avoid archiving in Kaggle)
+DATA_DIR = f"{TEMP_BASE}/data"
+FID_REAL_DIR = f"{TEMP_BASE}/fid_real"
+FID_FAKE_DIR = f"{TEMP_BASE}/fid_fake"
+# Persistent directories for models and results (to keep after job completion)
 MODELS_DIR = f"{DRIVE_PATH}/saved_models/{timestamp}"
 RESULTS_DIR = f"{DRIVE_PATH}/results/{timestamp}"
 

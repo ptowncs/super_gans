@@ -342,8 +342,8 @@ def main(restart=False, best_fid=float('inf'), best_fid_epoch=0):
     training_loop(loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wandb, start_epoch=start_epoch)
     utils.save_model(gen, disc, opt_gen, opt_disc, f"epoch:{cfg.num_epochs}", "sr_gan_checkpoint.pth")
 
-    real_images_dir = f"{cfg.RESULTS_DIR}/real_images_fid"
-    generated_images_dir = f"{cfg.RESULTS_DIR}/fake_images_fid"
+    real_images_dir = cfg.FID_REAL_DIR
+    generated_images_dir = cfg.FID_FAKE_DIR
     validation_dataset = utils.build_fid_evaluation_dataset(load_fn=load_datapairs)
     real_count = len(validation_dataset)
     # Log dataset sizes to WandB

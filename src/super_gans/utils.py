@@ -322,3 +322,97 @@ def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
     gen.train()
 
 
+def setup_training_csv(gan_name):
+    """
+    Set up training CSV file with headers if it doesn't exist.
+
+    Args:
+        gan_name: Name of the GAN (used for filename)
+
+    Returns:
+        Path to the CSV file
+    """
+    filename = f"{gan_name}_training.csv"
+    csv_dir = f"{cfg.RESULTS_DIR}"
+    os.makedirs(csv_dir, exist_ok=True)
+    csv_path = f"{csv_dir}/{filename}"
+
+    # Write header if file doesn't exist
+    if not os.path.isfile(csv_path):
+        with open(csv_path, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(['epoch', 'G_loss', 'D_loss', 'FID_train'])
+
+    return csv_path
+
+def log_training_row(csv_path, epoch, loss_g=None, loss_d=None, fid_train=None):
+    """
+    Append a row to the training CSV file.
+
+    Args:
+        csv_path: Path to the CSV file
+        epoch: Current epoch number
+        loss_g: Generator loss (optional)
+        loss_d: Discriminator loss (optional)
+        fid_train: FID score calculated during training (optional)
+    """
+    with open(csv_path, 'a', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        # Format: epoch, G_loss, D_loss, FID_train
+        # Use empty string for None values
+        row = [
+            epoch,
+            f"{loss_g:.6f}" if loss_g is not None else "",
+            f"{loss_d:.6f}" if loss_d is not None else "",
+            f"{fid_train:.6f}" if fid_train is not None else ""
+        ]
+        writer.writerow(row)
+
+def setup_validation_csv(gan_name):
+    """
+    Set up validation CSV file with headers if it doesn't exist.
+
+    Args:
+        gan_name: Name of the GAN (used for filename)
+
+    Returns:
+        Path to the CSV file
+    """
+    filename = f"{gan_name}_validation.csv"
+    csv_dir = f"{cfg.RESULTS_DIR}"
+    os.makedirs(csv_dir, exist_ok=True)
+    csv_path = f"{csv_dir}/{filename}"
+
+    # Write header if file doesn't exist
+    if not os.path.isfile(csv_path):
+        with open(csv_path, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(['best_epoch', 'best_fid_during_training', 'final_fid', 'final_kid_mean', 'final_kid_std'])
+
+    return csv_path
+
+def log_validation_row(csv_path, best_epoch, best_fid_during_training, final_fid, final_kid_mean=None, final_kid_std=None):
+    """
+    Append a validation row to the CSV file (typically called once after training).
+
+    Args:
+        csv_path: Path to the CSV file
+        best_epoch: Epoch number of the best model during training
+        best_fid_during_training: Best FID score observed during training
+        final_fid: Final FID score from evaluation of best model
+        final_kid_mean: Final KID mean from evaluation (optional)
+        final_kid_std: Final KID std from evaluation (optional)
+    """
+    with open(csv_path, 'a', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        # Format: best_epoch, best_fid_during_training, final_fid, final_kid_mean, final_kid_std
+        row = [
+            best_epoch,
+            f"{best_fid_during_training:.6f}",
+            f"{final_fid:.6f}",
+            f"{final_kid_mean:.6f}" if final_kid_mean is not None else "",
+            f"{final_kid_std:.6f}" if final_kid_std is not None else ""
+        ]
+        writer.writerow(row)
+
+

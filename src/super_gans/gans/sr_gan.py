@@ -200,6 +200,9 @@ def training_loop(loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wand
     wandb.define_metric("epoch", hidden=True)
     wandb.define_metric("*", step_metric="epoch")
 
+    # Setup CSV logging
+    train_csv_path = utils.setup_training_csv("srgan")
+
     for epoch in range(start_epoch, cfg.num_epochs):
         process = psutil.Process(os.getpid())
         print(f"Epoch: {epoch} | RAM GB: {process.memory_info().rss / 1024**3:.2f} \
@@ -216,6 +219,12 @@ def training_loop(loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wand
 
             wandb.log({"Metrics/FID": current_fid, "epoch": epoch}, commit=True)
             print(f"--- Epoch [{epoch}] FID Score: {current_fid:.4f} ---")
+
+            # Log losses and FID to training CSV
+            utils.log_training_row(train_csv_path, epoch,
+                                  loss_g=gen_loss.item(),
+                                  loss_d=loss_disc.item(),
+                                  fid_train=current_fid)
 
             # Checkpoint: Save as 'best' if quality improved
             if current_fid < best_fid:
@@ -348,7 +357,7 @@ def main(restart=False, best_fid=float('inf'), best_fid_epoch=0):
     gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"
     best_model_path = f"{gan_checkpoints_dir}/best_gan.pth"
     utils.load_best_model(gen, best_model_path)
-    utils.generate_images_metrics(gen, validation_dataset, generated_images_dir, cfg.num_images_fid_score)
+    utils.generate_images_metrics(gen, generated_images_dir, cfg.num_images_fid_score)
     fid_value = metrics.calc_fid_score(real_images_dir, generated_images_dir)
     kid_mean, kid_std = metrics.calc_kid_score(real_images_dir, generated_images_dir)
     print(f"FID score: {fid_value}")
@@ -358,6 +367,13 @@ def main(restart=False, best_fid=float('inf'), best_fid_epoch=0):
     wandb.run.summary["final_fid"] = fid_value
     wandb.run.summary["final_kid_mean"] = kid_mean
     wandb.run.summary["final_kid_std"] = kid_std
+    # Log validation metrics to CSV
+    utils.log_validation_row(val_csv_path,
+                            best_fid_epoch,
+                            best_fid,  # This is the best FID observed during training
+                            fid_value,  # This is the final FID from evaluation of best model
+                            kid_mean,
+                            kid_std)
     wandb.finish()
 
 if __name__ == '__main__':

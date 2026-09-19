@@ -84,6 +84,9 @@ def training_loop(
     wandb.define_metric("epoch", hidden=True)
     wandb.define_metric("*", step_metric="epoch")
 
+    # Setup CSV logging
+    train_csv_path = utils.setup_training_csv("simple_gan")
+
     for epoch in range(cfg.num_epochs):
         process = psutil.Process(os.getpid())
         print(
@@ -156,6 +159,12 @@ def training_loop(
             wandb.log({"Metrics/FID": current_fid, "epoch": epoch}, commit=True)
             print(f"--- Epoch [{epoch}] FID Score: {current_fid:.4f} ---")
 
+            # Log losses and FID to training CSV
+            utils.log_training_row(train_csv_path, epoch,
+                                  loss_g=lossG.item(),
+                                  loss_d=lossD.item(),
+                                  fid_train=current_fid)
+
             # Checkpoint: Save as 'best' if quality improved
             if current_fid < best_fid:
                 best_fid = current_fid
@@ -166,6 +175,11 @@ def training_loop(
         else:
             # VERIFIED FIX: Commits the losses and moves the custom timeline forward on non-FID epochs
             wandb.log({"epoch": epoch}, commit=True)
+            # Log losses to training CSV (no FID)
+            utils.log_training_row(train_csv_path, epoch,
+                                  loss_g=lossG.item(),
+                                  loss_d=lossD.item(),
+                                  fid_train=None)
 
         # End of Epoch cleanup
         # writer.flush()
@@ -219,12 +233,17 @@ def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
         # Check for existing checkpoint to resume training
         start_epoch = utils.reload_checkpoint_model(gen, disc, opt_gen, opt_disc)
 
+    # Setup CSV logging
+    train_csv_path = utils.setup_training_csv("simple_gan")
+    val_csv_path = utils.setup_validation_csv("simple_gan")
+
     if start_epoch == 0:
         print("Starting training from scratch")
     else:
         print(f"Resuming training from epoch {start_epoch}")
 
-    training_loop(disc, gen, opt_disc, opt_gen, train_dataset, wandb, start_epoch, best_fid, best_fid_epoch)
+    training_loop(disc, gen, opt_disc, opt_gen, train_dataset, wandb,
+                  start_epoch, best_fid, best_fid_epoch)
     utils.save_model(gen, disc, opt_gen, opt_disc, f"epoch:{cfg.num_epochs}", "simple_gan_checkpoint.pth")
 
     real_images_dir = f"{cfg.RESULTS_DIR}/real_images_fid"
@@ -253,6 +272,13 @@ def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
     wandb.run.summary["final_fid"] = fid_value
     wandb.run.summary["final_kid_mean"] = kid_mean
     wandb.run.summary["final_kid_std"] = kid_std
+    # Log validation metrics to CSV
+    utils.log_validation_row(val_csv_path,
+                            best_fid_epoch,
+                            best_fid,  # This is the best FID observed during training
+                            fid_value,  # This is the final FID from evaluation of best model
+                            kid_mean,
+                            kid_std)
     wandb.finish()
 
 if __name__ == "__main__":

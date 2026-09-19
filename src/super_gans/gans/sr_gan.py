@@ -225,6 +225,7 @@ def training_loop(loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wand
                                   loss_g=gen_loss.item(),
                                   loss_d=loss_disc.item(),
                                   fid_train=current_fid)
+            print(f"Epoch [{epoch}/{cfg.num_epochs}] CSV: G_loss={gen_loss.item():.6f}, D_loss={loss_disc.item():.6f}, FID_train={current_fid:.6f}")
 
             # Checkpoint: Save as 'best' if quality improved
             if current_fid < best_fid:
@@ -233,6 +234,7 @@ def training_loop(loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wand
                 utils.save_model(gen, disc, opt_gen, opt_disc, epoch, filename="best_gan.pth")
         else:
             wandb.log({"epoch": epoch}, commit=True)
+            print(f"Epoch [{epoch}/{cfg.num_epochs}] CSV: G_loss={gen_loss.item():.6f}, D_loss={loss_disc.item():.6f}, FID_train=N/A")
 
         # End of Epoch cleanup
         #writer.flush()

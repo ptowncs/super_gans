@@ -189,6 +189,7 @@ def training_loop(
                                   loss_g=lossG.item(),
                                   loss_d=lossD.item(),
                                   fid_train=current_fid)
+            print(f"Epoch [{epoch}/{cfg.num_epochs}] CSV: G_loss={lossG.item():.6f}, D_loss={lossD.item():.6f}, FID_train={current_fid:.6f}")
 
             # Checkpoint: Save as 'best' if quality improved
             if current_fid < best_fid:
@@ -205,6 +206,7 @@ def training_loop(
                                   loss_g=lossG.item(),
                                   loss_d=lossD.item(),
                                   fid_train=None)
+            print(f"Epoch [{epoch}/{cfg.num_epochs}] CSV: G_loss={lossG.item():.6f}, D_loss={lossD.item():.6f}, FID_train=N/A")
 
         # End of Epoch cleanup
         torch.cuda.empty_cache()

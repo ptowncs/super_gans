@@ -310,6 +310,10 @@ def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
         # --- Make grids ---
 
         # --- Log to WandB ---
+        # Move to CPU and detach from computation graph for WandB logging
+        img_grid_fake = img_grid_fake.detach().cpu()
+        img_grid_real = img_grid_real.detach().cpu()
+
         wandb.log(
             {
                 "Generated Grid": wandb.Image(

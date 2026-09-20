@@ -315,33 +315,42 @@ def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
 
         # FIX: Handle variable-sized DataLoader batches (last batch often smaller)
         # Ensures both tensors have matching batch sizes for make_grid()
+        # Also handle edge case where batch size could be 0
         min_batch = min(fake.shape[0], real.shape[0])
-        if fake.shape[0] != min_batch:
-            fake = fake[:min_batch]
-        if real.shape[0] != min_batch:
-            real = real[:min_batch]
+        if min_batch > 0:  # Only proceed if we have valid batch size
+            if fake.shape[0] != min_batch:
+                fake = fake[:min_batch]
+            if real.shape[0] != min_batch:
+                real = real[:min_batch]
 
-        # 3. Convert both from 1-channel to 3-channel (RGB)
-        # This is necessary so the grid looks consistent in all viewers
-        fake_rgb = fake.repeat(1, 3, 1, 1)
-        real_rgb = real.repeat(1, 3, 1, 1)
+            # 3. Convert both from 1-channel to 3-channel (RGB)
+            # This is necessary so the grid looks consistent in all viewers
+            fake_rgb = fake.repeat(1, 3, 1, 1)
+            real_rgb = real.repeat(1, 3, 1, 1)
 
-        # 4. Create grids using Torchvision's built-in normalization
-        # normalize=True: shifts the range to [0, 1]
-        # value_range=(-1, 1): tells the function our Tanh/Transform output is [-1, 1]
-        img_grid_fake = make_grid(fake_rgb, nrow=8, normalize=True, value_range=(-1, 1))
-        img_grid_real = make_grid(real_rgb, nrow=8, normalize=True, value_range=(-1, 1))
+            # 4. Create grids using Torchvision's built-in normalization
+            # normalize=True: shifts the range to [0, 1]
+            # value_range=(-1, 1): tells the function our Tanh/Transform output is [-1, 1]
+            img_grid_fake = make_grid(fake_rgb, nrow=8, normalize=True, value_range=(-1, 1))
+            img_grid_real = make_grid(real_rgb, nrow=8, normalize=True, value_range=(-1, 1))
 
-        # 5. Log to WandB
-        # Move to CPU and detach from computation graph for WandB logging
-        img_grid_fake_cpu = img_grid_fake.detach().cpu()
-        img_grid_real_cpu = img_grid_real.detach().cpu()
+            # 5. Log to WandB
+            # Move to CPU and detach from computation graph for WandB logging
+            img_grid_fake_cpu = img_grid_fake.detach().cpu()
+            img_grid_real_cpu = img_grid_real.detach().cpu()
 
-        wandb.log({
-            "Generated Grid": wandb.Image(img_grid_fake_cpu, caption=f"epoch_{epoch:03d}"),
-            "Real Grid": wandb.Image(img_grid_real_cpu, caption=f"epoch_{epoch:03d}"),
-            "epoch": epoch
-        }, commit=False)
+            try:
+                wandb.log({
+                    "Generated Grid": wandb.Image(img_grid_fake_cpu, caption=f"epoch_{epoch:03d}"),
+                    "Real Grid": wandb.Image(img_grid_real_cpu, caption=f"epoch_{epoch:03d}"),
+                    "epoch": epoch
+                }, commit=False)
+            except Exception as e:
+                # Fallback: log error to wandb so we know if visualization fails
+                wandb.log({"visualization_error": str(e), "epoch": epoch}, commit=False)
+        else:
+            # Log warning if batch size is invalid
+            wandb.log({"visualization_warning": f"Invalid batch size: fake={fake.shape[0]}, real={real.shape[0]}", "epoch": epoch}, commit=False)
     gen.train()
 
 

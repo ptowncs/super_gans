@@ -170,7 +170,7 @@ def training_loop(
             print(
                 f"Epoch [{epoch}/{cfg.num_epochs}] Loss D: {lossD.item():.4f}, Loss G: {lossG.item():.4f}"
             )
-            utils.log_tensorboard_visuals(wandb, gen, real_orig, fixed_noise, epoch)
+            utils.log_tensorboard_visuals(wandb, gen, real, fixed_noise, epoch)
 
         # --- FID CALCULATION AT END OF EPOCH ---
         if (epoch % cfg.fid_interval == 0) or (epoch == cfg.num_epochs - 1):

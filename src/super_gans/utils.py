@@ -289,6 +289,8 @@ def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
 
         # 2. Reshape real data (Shape: N, 1, H, W)
         real = real_batch.reshape(-1, cfg.num_channels, cfg.image_size, cfg.image_size)
+        # Fix device mismatch between real (CPU from DataLoader) and fake (GPU)
+        real = real.to(fake.device)
 
         # 3. Convert both from 1-channel to 3-channel (RGB)
         # This is necessary so the grid looks consistent in all viewers

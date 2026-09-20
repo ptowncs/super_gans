@@ -33,14 +33,16 @@ def create_dirs():
 
 def get_transforms_pipeline():
     """Get the standard transforms pipeline for pneumonia dataset."""
-    return transforms.Compose([
-        transforms.Grayscale(
-            num_output_channels=cfg.num_channels
-        ),  # Force 1 channel
-        transforms.Resize((cfg.image_size, cfg.image_size)),
-        transforms.ToTensor(),  # image to tensor
-        transforms.Normalize((0.5,), (0.5,)),  # normalize images , [0,1] to [-1,1]
-    ])
+    return transforms.Compose(
+        [
+            transforms.Grayscale(
+                num_output_channels=cfg.num_channels
+            ),  # Force 1 channel
+            transforms.Resize((cfg.image_size, cfg.image_size)),
+            transforms.ToTensor(),  # image to tensor
+            transforms.Normalize((0.5,), (0.5,)),  # normalize images , [0,1] to [-1,1]
+        ]
+    )
 
 
 def prepare_data():
@@ -51,9 +53,9 @@ def prepare_data():
     data_source = cfg.DATA_SOURCE.lower()
     split_dir = "./data/split"
 
-    if data_source == 'kaggle':
+    if data_source == "kaggle":
         prepare_kaggle_data("./data", split_dir)
-    elif data_source == 'rsna':
+    elif data_source == "rsna":
         prepare_rsna_data("./data", split_dir)
     else:
         raise ValueError(f"Unknown data source: {data_source}. Use 'kaggle' or 'rsna'")
@@ -70,7 +72,7 @@ def load_data(split="train"):
     split_dir = Path("./data/split").resolve()  # Make absolute to avoid cwd issues
     transforms_pipeline = get_transforms_pipeline()
 
-    if data_source == 'kaggle':
+    if data_source == "kaggle":
         # Load from split directories (non-recursive - flattened structure)
         if split == "train":
             image_paths = [p for p in Path(split_dir).glob("train/*") if p.is_file()]
@@ -91,7 +93,7 @@ def load_data(split="train"):
             image_paths=image_paths,
             transform=transforms_pipeline,
         )
-    elif data_source == 'rsna':
+    elif data_source == "rsna":
         # Load from split directories (non-recursive - flattened structure)
         if split == "train":
             image_paths = [p for p in Path(split_dir).glob("train/*") if p.is_file()]
@@ -117,6 +119,7 @@ def load_data(split="train"):
     print(f"Loaded {len(dataset)} images for {split} split from {data_source} dataset")
     return dataset
 
+
 def build_fid_evaluation_dataset(load_fn=load_data):
     # Load training and validation datasets to get counts for logging
     train_ds = load_fn(split="train")
@@ -128,10 +131,13 @@ def build_fid_evaluation_dataset(load_fn=load_data):
     # Log dataset summary to console
     print(f"FID Evaluation Dataset Summary:")
     print(f"  Training images: {train_count}")
-    print(f"  Validation images: {val_count} (used for FID evaluation to prevent data leakage)")
+    print(
+        f"  Validation images: {val_count} (used for FID evaluation to prevent data leakage)"
+    )
 
     # Return validation dataset for FID evaluation (using only validation prevents data leakage)
     return val_ds
+
 
 def save_real_images_metrics(dataset, to_dir):
     os.makedirs(to_dir, exist_ok=True)
@@ -145,13 +151,14 @@ def save_real_images_metrics(dataset, to_dir):
         # so the PNGs are stored as standard [0, 255] pixel values correctly.
         save_image(image_rgb, filename, normalize=True, value_range=(-1, 1))
 
-    print(
-        f"Saved {len(dataset)} real images to {to_dir}/"
-    )
+    print(f"Saved {len(dataset)} real images to {to_dir}/")
 
-def generate_images_metrics(generator, generated_images_dir, num_images, batch_size=128):
+
+def generate_images_metrics(
+    generator, generated_images_dir, num_images, batch_size=128
+):
     os.makedirs(generated_images_dir, exist_ok=True)
-    generator.eval() # Ensure evaluation mode
+    generator.eval()  # Ensure evaluation mode
 
     images_saved = 0
     # Process in smaller chunks to prevent CUDA OOM
@@ -167,30 +174,36 @@ def generate_images_metrics(generator, generated_images_dir, num_images, batch_s
         for img in generated_images:
             # Convert Grayscale -> RGB to match the real images directory
             image_rgb = img.repeat(3, 1, 1)
-            filename = os.path.join(generated_images_dir, f"generated_image_{images_saved:04d}.png")
+            filename = os.path.join(
+                generated_images_dir, f"generated_image_{images_saved:04d}.png"
+            )
             save_image(image_rgb, filename, normalize=True, value_range=(-1, 1))
             images_saved += 1
 
-    print(f"Successfully generated and saved {images_saved} images to {generated_images_dir}/")
+    print(
+        f"Successfully generated and saved {images_saved} images to {generated_images_dir}/"
+    )
 
 
 def calculate_fid_sample(gen, loader, fid_metric):
     """
-    Calculates FID score by comparing real images from the loader 
+    Calculates FID score by comparing real images from the loader
     with generated images from the generator.
     """
     gen.eval()
     fid_metric.reset()
-    
+
     # Calculate how many batches we need to reach num_samples
-    assert cfg.num_images_fid_sample % cfg.batch_size == 0, "FID sample count must be divisible by batch size"
+    assert cfg.num_images_fid_sample % cfg.batch_size == 0, (
+        "FID sample count must be divisible by batch size"
+    )
     batch_size = cfg.batch_size
     n_batches = cfg.num_images_fid_sample // batch_size
     data_iter = iter(loader)
 
     # Ensure the metric is on the correct device
     fid_metric = fid_metric.to(cfg.device)
-    
+
     with torch.inference_mode():
         for _ in range(n_batches):
             # --- 1. Process Real Images ---
@@ -199,9 +212,9 @@ def calculate_fid_sample(gen, loader, fid_metric):
             except StopIteration:
                 data_iter = iter(loader)
                 real_batch, _ = next(data_iter)
-                
+
             real_batch = real_batch[:batch_size].to(cfg.device)
-           
+
             # Map [-1, 1] -> [0, 1] and expand grayscale to 3 channels
             real_rgb = (real_batch.expand(batch_size, 3, -1, -1) + 1.0) / 2.0
 
@@ -212,17 +225,18 @@ def calculate_fid_sample(gen, loader, fid_metric):
             noise = torch.randn(batch_size, cfg.z_dim, device=cfg.device)
             fake_batch = gen(noise)
             fake_rgb = (fake_batch.expand(batch_size, 3, -1, -1) + 1.0) / 2.0
-            
+
             fid_metric.update(fake_rgb, real=False)
 
     # --- 3. Compute and Log ---
     fid_score = fid_metric.compute().item()
 
-    if cfg.device == 'cuda':
+    if cfg.device == "cuda":
         torch.cuda.empty_cache()
 
     gen.train()
     return fid_score
+
 
 def save_model(gen, disc, opt_gen, opt_disc, epoch, filename="checkpoint.pth"):
     gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"
@@ -235,10 +249,11 @@ def save_model(gen, disc, opt_gen, opt_disc, epoch, filename="checkpoint.pth"):
         "optimizer_G_state_dict": opt_gen.state_dict(),
         "optimizer_D_state_dict": opt_disc.state_dict(),
     }
-    
+
     save_path = f"{gan_checkpoints_dir}/{filename}"
     torch.save(checkpoint, save_path)
     print(f"--- Saved checkpoint: {filename} at epoch {epoch} ---")
+
 
 def reload_checkpoint_model(gen, disc, opt_gen, opt_disc):
     checkpoint_path = f"{cfg.MODELS_DIR}/gan_checkpoints/latest_gan.pth"
@@ -283,45 +298,28 @@ def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
     gen.eval()
     with torch.inference_mode():
         # 1. Generate fakes (Shape: N, 1, H, W)
-        fake = gen(gen_input).reshape(
-            -1, cfg.num_channels, cfg.image_size, cfg.image_size
-        )
+        fake = gen(gen_input).view(-1, cfg.num_channels, cfg.image_size, cfg.image_size)
+        fake = fake.to(cfg.device)
 
         # 2. Reshape real data (Shape: N, 1, H, W)
         real = real_batch.reshape(-1, cfg.num_channels, cfg.image_size, cfg.image_size)
-        # Fix device mismatch between real (CPU from DataLoader) and fake (GPU)
-        real = real.to(fake.device)
+        real = real.to(cfg.device)  # Fix device mismatch
 
         # 3. Convert both from 1-channel to 3-channel (RGB)
-        # This is necessary so the grid looks consistent in all viewers
         fake_rgb = fake.repeat(1, 3, 1, 1)
         real_rgb = real.repeat(1, 3, 1, 1)
 
         # 4. Create grids using Torchvision's built-in normalization
-        # normalize=True: shifts the range to [0, 1]
-        # value_range=(-1, 1): tells the function our Tanh/Transform output is [-1, 1]
-        img_grid_fake = make_grid(
-            fake_rgb, nrow=8, normalize=True, value_range=(-1, 1)
-        )
-        img_grid_real = make_grid(
-            real_rgb, nrow=8, normalize=True, value_range=(-1, 1)
-        )
-        # 5. Log to TensorBoard
-        # writer.add_image("Images/Generated", img_grid_fake, global_step=epoch)
-        # writer.add_image("Images/Real", img_grid_real, global_step=epoch)
-        # --- Make grids ---
+        img_grid_fake = make_grid(fake_rgb, nrow=8, normalize=True, value_range=(-1, 1))
+        img_grid_real = make_grid(real_rgb, nrow=8, normalize=True, value_range=(-1, 1))
 
-        # --- Log to WandB ---
-        # Move to CPU and detach from computation graph for WandB logging
-        img_grid_fake = img_grid_fake.detach().cpu()
-        img_grid_real = img_grid_real.detach().cpu()
-
+        # 5. Log to WandB
         wandb.log(
             {
                 "Generated Grid": wandb.Image(
-                    img_grid_fake, caption=f"epoch_{epoch:03d}"
+                    img_grid_fake.detach().cpu(), caption=f"epoch_{epoch:03d}"
                 ),
-                "Real Grid": wandb.Image(img_grid_real, caption=f"epoch_{epoch:03d}"),
+                "Real Grid": wandb.Image(img_grid_real.detach().cpu(), caption=f"epoch_{epoch:03d}"),
                 "epoch": epoch,
             },
             commit=False,
@@ -346,11 +344,12 @@ def setup_training_csv(gan_name):
 
     # Write header if file doesn't exist
     if not os.path.isfile(csv_path):
-        with open(csv_path, 'w', newline='') as csvfile:
+        with open(csv_path, "w", newline="") as csvfile:
             writer = csv.writer(csvfile)
-            writer.writerow(['epoch', 'G_loss', 'D_loss', 'FID_train'])
+            writer.writerow(["epoch", "G_loss", "D_loss", "FID_train"])
 
     return csv_path
+
 
 def log_training_row(csv_path, epoch, loss_g=None, loss_d=None, fid_train=None):
     """
@@ -363,7 +362,7 @@ def log_training_row(csv_path, epoch, loss_g=None, loss_d=None, fid_train=None):
         loss_d: Discriminator loss (optional)
         fid_train: FID score calculated during training (optional)
     """
-    with open(csv_path, 'a', newline='') as csvfile:
+    with open(csv_path, "a", newline="") as csvfile:
         writer = csv.writer(csvfile)
         # Format: epoch, G_loss, D_loss, FID_train
         # Use empty string for None values
@@ -371,9 +370,10 @@ def log_training_row(csv_path, epoch, loss_g=None, loss_d=None, fid_train=None):
             epoch,
             f"{loss_g:.6f}" if loss_g is not None else "",
             f"{loss_d:.6f}" if loss_d is not None else "",
-            f"{fid_train:.6f}" if fid_train is not None else ""
+            f"{fid_train:.6f}" if fid_train is not None else "",
         ]
         writer.writerow(row)
+
 
 def setup_validation_csv(gan_name):
     """
@@ -392,13 +392,29 @@ def setup_validation_csv(gan_name):
 
     # Write header if file doesn't exist
     if not os.path.isfile(csv_path):
-        with open(csv_path, 'w', newline='') as csvfile:
+        with open(csv_path, "w", newline="") as csvfile:
             writer = csv.writer(csvfile)
-            writer.writerow(['best_epoch', 'best_fid_during_training', 'final_fid', 'final_kid_mean', 'final_kid_std'])
+            writer.writerow(
+                [
+                    "best_epoch",
+                    "best_fid_during_training",
+                    "final_fid",
+                    "final_kid_mean",
+                    "final_kid_std",
+                ]
+            )
 
     return csv_path
 
-def log_validation_row(csv_path, best_epoch, best_fid_during_training, final_fid, final_kid_mean=None, final_kid_std=None):
+
+def log_validation_row(
+    csv_path,
+    best_epoch,
+    best_fid_during_training,
+    final_fid,
+    final_kid_mean=None,
+    final_kid_std=None,
+):
     """
     Append a validation row to the CSV file (typically called once after training).
 
@@ -410,7 +426,7 @@ def log_validation_row(csv_path, best_epoch, best_fid_during_training, final_fid
         final_kid_mean: Final KID mean from evaluation (optional)
         final_kid_std: Final KID std from evaluation (optional)
     """
-    with open(csv_path, 'a', newline='') as csvfile:
+    with open(csv_path, "a", newline="") as csvfile:
         writer = csv.writer(csvfile)
         # Format: best_epoch, best_fid_during_training, final_fid, final_kid_mean, final_kid_std
         row = [
@@ -418,8 +434,6 @@ def log_validation_row(csv_path, best_epoch, best_fid_during_training, final_fid
             f"{best_fid_during_training:.6f}",
             f"{final_fid:.6f}",
             f"{final_kid_mean:.6f}" if final_kid_mean is not None else "",
-            f"{final_kid_std:.6f}" if final_kid_std is not None else ""
+            f"{final_kid_std:.6f}" if final_kid_std is not None else "",
         ]
         writer.writerow(row)
-
-

@@ -297,10 +297,18 @@ def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
     """
     gen.eval()
     with torch.inference_mode():
+        # Debug: Log input tensor info
+        print(f"[DEBUG VIZ] log_tensorboard_visuals called - epoch: {epoch}")
+        print(f"[DEBUG VIZ] real_batch shape: {real_batch.shape}, device: {real_batch.device}")
+        print(f"[DEBUG VIZ] gen_input shape: {gen_input.shape}, device: {gen_input.device}")
+
         # 1. Generate fakes (Shape: N, 1, H, W)
         fake = gen(gen_input)
+        print(f"[DEBUG VIZ] After gen(gen_input): shape={fake.shape}, device={fake.device}")
         fake = fake.view(-1, cfg.num_channels, cfg.image_size, cfg.image_size)
+        print(f"[DEBUG VIZ] After view: shape={fake.shape}, device={fake.device}")
         fake = fake.to(cfg.device)  # Ensure on correct device
+        print(f"[DEBUG VIZ] After .to(cfg.device): shape={fake.shape}, device={fake.device}")
 
         # 2. Handle real data - caller may pass wrong format/tensor
         # If real_batch is already image format [N, 1, H, W], use as-is
@@ -308,39 +316,53 @@ def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
         if len(real_batch.shape) == 4 and real_batch.shape[1] == cfg.num_channels:
             # Already in image format [N, 1, H, W] (e.g., from SRGAN or mistaken caller)
             real = real_batch.to(cfg.device)
+            print(f"[DEBUG VIZ] real_batch is image format [N,1,H,W], moved to device: shape={real.shape}, device={real.device}")
         else:
             # Flattened format [N, H*W] - needs reshaping (what working caller should pass)
             real = real_batch.view(-1, cfg.num_channels, cfg.image_size, cfg.image_size)
+            print(f"[DEBUG VIZ] real_batch.view result: shape={real.shape}, device={real.device}")
             real = real.to(cfg.device)  # Ensure on correct device
+            print(f"[DEBUG VIZ] After .to(cfg.device): shape={real.shape}, device={real.device}")
 
         # Ensure both have the same batch size for consistent grids
         min_batch = min(fake.shape[0], real.shape[0])
+        print(f"[DEBUG VIZ] min_batch: {min_batch}")
         if fake.shape[0] != min_batch:
             fake = fake[:min_batch]
+            print(f"[DEBUG VIZ] fake truncated from {fake.shape[0] + min_batch - fake.shape[0]} to {fake.shape[0]}")
         if real.shape[0] != min_batch:
             real = real[:min_batch]
+            print(f"[DEBUG VIZ] real truncated from {real.shape[0] + min_batch - real.shape[0]} to {real.shape[0]}")
+        print(f"[DEBUG VIZ] After batch matching: fake shape={fake.shape}, real shape={real.shape}")
 
         # 3. Convert both from 1-channel to 3-channel (RGB)
         # This is necessary so the grid looks consistent in all viewers
         fake_rgb = fake.repeat(1, 3, 1, 1)
+        print(f"[DEBUG VIZ] fake_rgb shape: {fake_rgb.shape}, device={fake_rgb.device}")
         real_rgb = real.repeat(1, 3, 1, 1)
+        print(f"[DEBUG VIZ] real_rgb shape: {real_rgb.shape}, device={real_rgb.device}")
 
         # 4. Create grids using Torchvision's built-in normalization
         # normalize=True: shifts the range to [0, 1]
         # value_range=(-1, 1): tells the function our Tanh/Transform output is [-1, 1]
         img_grid_fake = make_grid(fake_rgb, nrow=8, normalize=True, value_range=(-1, 1))
+        print(f"[DEBUG VIZ] img_grid_fake shape: {img_grid_fake.shape}, device={img_grid_fake.device}")
         img_grid_real = make_grid(real_rgb, nrow=8, normalize=True, value_range=(-1, 1))
+        print(f"[DEBUG VIZ] img_grid_real shape: {img_grid_real.shape}, device={img_grid_real.device}")
 
         # 5. Log to WandB
         # Move to CPU and detach from computation graph for WandB logging
         img_grid_fake_cpu = img_grid_fake.detach().cpu()
         img_grid_real_cpu = img_grid_real.detach().cpu()
+        print(f"[DEBUG VIZ] img_grid_fake_cpu shape: {img_grid_fake_cpu.shape}, device={img_grid_fake_cpu.device}")
+        print(f"[DEBUG VIZ] img_grid_real_cpu shape: {img_grid_real_cpu.shape}, device={img_grid_real_cpu.device}")
 
         wandb.log({
             "Generated Grid": wandb.Image(img_grid_fake_cpu, caption=f"epoch_{epoch:03d}"),
             "Real Grid": wandb.Image(img_grid_real_cpu, caption=f"epoch_{epoch:03d}"),
             "epoch": epoch
         }, commit=False)
+        print(f"[DEBUG VIZ] Wandb logging completed for epoch {epoch}")
     gen.train()
 
 

@@ -299,31 +299,34 @@ def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
     with torch.inference_mode():
         # 1. Generate fakes (Shape: N, 1, H, W)
         fake = gen(gen_input).view(-1, cfg.num_channels, cfg.image_size, cfg.image_size)
-        fake = fake.to(cfg.device)
+        fake = fake.to(cfg.device)  # Ensure on correct device
+        fake = torch.clamp(fake, -1.0, 1.0)  # Clamp to valid range [-1, 1]
 
-        # 2. Reshape real data (Shape: N, 1, H, W)
-        real = real_batch.reshape(-1, cfg.num_channels, cfg.image_size, cfg.image_size)
-        real = real.to(cfg.device)  # Fix device mismatch
+        # 2. Reshape real data to image format [N, 1, H, W]
+        # Handle various input formats from different callers
+        real = real_batch.view(-1, cfg.num_channels, cfg.image_size, cfg.image_size)
+        real = real.to(cfg.device)  # Ensure on correct device
+        real = torch.clamp(real, -1.0, 1.0)  # Clamp to valid range [-1, 1]
 
         # 3. Convert both from 1-channel to 3-channel (RGB)
+        # This is necessary so the grid looks consistent in all viewers
         fake_rgb = fake.repeat(1, 3, 1, 1)
         real_rgb = real.repeat(1, 3, 1, 1)
 
         # 4. Create grids using Torchvision's built-in normalization
+        # normalize=True: shifts the range to [0, 1]
+        # value_range=(-1, 1): tells the function our Tanh/Transform output is [-1, 1]
         img_grid_fake = make_grid(fake_rgb, nrow=8, normalize=True, value_range=(-1, 1))
         img_grid_real = make_grid(real_rgb, nrow=8, normalize=True, value_range=(-1, 1))
+        # 5. Log to WandB (commented TensorBoard code removed as we use Wandb)
+        # --- Make grids ---
 
-        # 5. Log to WandB
-        wandb.log(
-            {
-                "Generated Grid": wandb.Image(
-                    img_grid_fake.detach().cpu(), caption=f"epoch_{epoch:03d}"
-                ),
-                "Real Grid": wandb.Image(img_grid_real.detach().cpu(), caption=f"epoch_{epoch:03d}"),
-                "epoch": epoch,
-            },
-            commit=False,
-        )
+        # --- Log to WandB ---
+        # Move to CPU and detach from computation graph for WandB logging
+        img_grid_fake = img_grid_fake.detach().cpu()
+        img_grid_real = img_grid_real.detach().cpu()
+        wandb.log({"Generated Grid": wandb.Image(img_grid_fake, caption=f"epoch_{epoch:03d}"),
+                   "Real Grid": wandb.Image(img_grid_real, caption=f"epoch_{epoch:03d}")}, commit=False)
     gen.train()
 
 

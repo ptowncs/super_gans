@@ -302,9 +302,10 @@ def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
     gen.eval()
     with torch.inference_mode():
         # 1. Generate fakes (Shape: N, 1, H, W)
-        fake = gen(gen_input)
-        print(f"[VIZ DEBUG] After gen(gen_input): fake shape {fake.shape}", flush=True)
-        fake = fake.view(-1, cfg.num_channels, cfg.image_size, cfg.image_size)
+        raw_fake = gen(gen_input)  # Get raw output before any processing
+        print(f"[VIZ DEBUG] Raw fake from generator: shape {raw_fake.shape}, min {raw_fake.min().item():.6f}, max {raw_fake.max().item():.6f}", flush=True)
+        
+        fake = raw_fake.view(-1, cfg.num_channels, cfg.image_size, cfg.image_size)
         print(f"[VIZ DEBUG] After view: fake shape {fake.shape}", flush=True)
         fake = fake.to(cfg.device)  # Ensure on correct device
         print(f"[VIZ DEBUG] After .to(device): fake shape {fake.shape}", flush=True)
@@ -322,6 +323,20 @@ def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
             print(f"[VIZ DEBUG] real_batch.view result: real shape {real.shape}", flush=True)
             real = real.to(cfg.device)  # Ensure on correct device
             print(f"[VIZ DEBUG] After .to(device): real shape {real.shape}", flush=True)
+
+        # DEBUG: Check for negative values in processed tensors (should exist after Tanh)
+        fake_has_neg = (fake < 0).any().item()
+        real_has_neg = (real < 0).any().item()
+        raw_fake_has_neg = (raw_fake < 0).any().item()
+        print(f"[VIZ DEBUG] Raw fake has negative values: {raw_fake_has_neg}", flush=True)
+        print(f"[VIZ DEBUG] Fake has negative values: {fake_has_neg}", flush=True)
+        print(f"[VIZ DEBUG] Real has negative values: {real_has_neg}", flush=True)
+        wandb.log({
+            "viz_raw_fake_has_neg": raw_fake_has_neg,
+            "viz_fake_has_neg": fake_has_neg,
+            "viz_real_has_neg": real_has_neg,
+            "epoch": epoch
+        }, commit=False)
 
         # FIX: Handle variable-sized DataLoader batches (last batch often smaller)
         # Ensures both tensors have matching batch sizes for make_grid()

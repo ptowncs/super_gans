@@ -333,24 +333,20 @@ def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
         img_grid_fake = make_grid(fake_rgb, nrow=8, normalize=True, value_range=(-1, 1))
         img_grid_real = make_grid(real_rgb, nrow=8, normalize=True, value_range=(-1, 1))
 
-        # DEBUG: Save images locally to verify they are not actually black
+        # Save images locally for user verification
+        local_visuals_dir = "./results/visuals"
+        os.makedirs(local_visuals_dir, exist_ok=True)
+        fake_path = os.path.join(local_visuals_dir, f"fake_epoch_{epoch:03d}.png")
+        real_path = os.path.join(local_visuals_dir, f"real_epoch_{epoch:03d}.png")
         try:
-            import os
-            debug_dir = "/tmp/viz_debug"
-            os.makedirs(debug_dir, exist_ok=True)
-            
-            # Save fake grid as numpy for later inspection
-            fake_to_save = img_grid_fake.detach().cpu()
-            real_to_save = img_grid_real.detach().cpu()
-            
-            np.save(f"{debug_dir}/fake_grid_epoch{epoch:03d}.npy", fake_to_save.numpy())
-            np.save(f"{debug_dir}/real_grid_epoch{epoch:03d}.npy", real_to_save.numpy())
-            
-            # Also save as actual PNG files if possible
+            save_image(img_grid_fake, fake_path)
+            save_image(img_grid_real, real_path)
+        except Exception as e:
+            # Don't let saving errors break the main function
+            print(f"Warning: Failed to save images locally: {e}")
             try:
                 from PIL import Image
-                import numpy as np
-                
+                # Use global numpy import
                 # Convert fake grid to HWC uint8 for PIL
                 fake_hwc = np.transpose(fake_to_save.numpy(), (1, 2, 0))  # CHW -> HWC
                 fake_hwc = np.clip(fake_hwc * 255, 0, 255).astype(np.uint8)
@@ -358,7 +354,7 @@ def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
                     fake_hwc = fake_hwc[:, :, 0]
                 fake_pil = Image.fromarray(fake_hwc)
                 fake_pil.save(f"{debug_dir}/fake_grid_epoch{epoch:03d}.png")
-                
+
                 # Convert real grid to HWC uint8 for PIL
                 real_hwc = np.transpose(real_to_save.numpy(), (1, 2, 0))  # CHW -> HWC
                 real_hwc = np.clip(real_hwc * 255, 0, 255).astype(np.uint8)
@@ -380,18 +376,18 @@ def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
         # Move to CPU and detach from computation graph
         img_grid_fake_cpu = img_grid_fake.detach().cpu()
         img_grid_real_cpu = img_grid_real.detach().cpu()
-        
+
         # Log image statistics to Wandb for debugging
         fake_min = img_grid_fake_cpu.min().item()
         fake_max = img_grid_fake_cpu.max().item()
         fake_mean = img_grid_fake_cpu.mean().item()
         fake_std = img_grid_fake_cpu.std().item()
-        
+
         real_min = img_grid_real_cpu.min().item()
         real_max = img_grid_real_cpu.max().item()
         real_mean = img_grid_real_cpu.mean().item()
         real_std = img_grid_real_cpu.std().item()
-        
+
         wandb.log({
             "viz_fake_min": fake_min,
             "viz_fake_max": fake_max,
@@ -403,45 +399,68 @@ def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
             "viz_real_std": real_std,
             "epoch": epoch
         }, commit=False)
-        
-        # Convert to numpy array and ensure correct data type for wandb.Image()
-        # wandb.Image expects either:
-        # - UINT8 array with shape (H, W, 3) or (H, W) for grayscale
-        # - FLOAT32 array with values in [0, 1] and shape (H, W, 3) or (H, W)
-        # - Or CHW format tensors (which we have) - but let's be explicit
-        
+
+        # Convert to numpy array for WandB - ensure correct format
         try:
-            # Convert to numpy and ensure we have the right format
-            fake_np = img_grid_fake_cpu.numpy()
-            real_np = img_grid_real_cpu.numpy()
-            
-            # Convert CHW to HWC format for wandb.Image (often more reliable)
-            # Shape: (C, H, W) -> (H, W, C)
-            if fake_np.shape[0] == 3:  # RGB image
-                fake_np = np.transpose(fake_np, (1, 2, 0))  # CHW -> HWC
-            if real_np.shape[0] == 3:  # RGB image
-                real_np = np.transpose(real_np, (1, 2, 0))  # CHW -> HWC
-            
-            # The values should already be in [0, 1] from make_grid(normalize=True, value_range=(-1,1))
-            # But let's clip to be safe and ensure no NaN/inf values
+            # Convert from CHW to HWC format for wandb.Image
+            # Detach, move to CPU, convert to numpy
+            fake_np = img_grid_fake_cpu.permute(1, 2, 0).cpu().numpy()
+            real_np = img_grid_real_cpu.permute(1, 2, 0).cpu().numpy()
+
+            # Ensure correct data type and value range
+            # Values should already be in [0, 1] from make_grid(normalize=True, value_range=(-1,1))
+            # But explicitly convert to float32 and clip to be safe
+            fake_np = fake_np.astype(np.float32)
+            real_np = real_np.astype(np.float32)
             fake_np = np.clip(fake_np, 0, 1)
             real_np = np.clip(real_np, 0, 1)
-            
-            # Log to WandB with HWC format
+
+            # Log to WandB
             wandb.log({
                 "Generated Grid": wandb.Image(fake_np, caption=f"epoch_{epoch:03d}"),
                 "Real Grid": wandb.Image(real_np, caption=f"epoch_{epoch:03d}"),
                 "epoch": epoch
-            }, commit=True)  # Changed to commit=True to ensure immediate sending
+            })
         except Exception as e:
-            # Fallback to original method if numpy conversion fails
-            wandb.log({
-                "Generated Grid": wandb.Image(img_grid_fake_cpu, caption=f"epoch_{epoch:03d}"),
-                "Real Grid": wandb.Image(img_grid_real_cpu, caption=f"epoch_{epoch:03d}"),
-                "epoch": epoch
-            }, commit=True)
-            # Log the error for debugging
-            wandb.log({"wandb_image_error": str(e), "epoch": epoch}, commit=False)
+            # Fallback: try a different approach if the above fails
+            try:
+                # Alternative: log as uint8 PNG bytes
+                import io
+                from PIL import Image
+
+                # Fake image
+                fake_pil_np = (img_grid_fake_cpu.permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
+                if fake_pil_np.shape[2] == 1:  # Grayscale
+                    fake_pil_np = fake_pil_np[:, :, 0]
+                fake_pil = Image.fromarray(fake_pil_np)
+                fake_buf = io.BytesIO()
+                fake_pil.save(fake_buf, format='PNG')
+                fake_bytes = fake_buf.getvalue()
+
+                # Real image
+                real_pil_np = (img_grid_real_cpu.permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
+                if real_pil_np.shape[2] == 1:  # Grayscale
+                    real_pil_np = real_pil_np[:, :, 0]
+                real_pil = Image.fromarray(real_pil_np)
+                real_buf = io.BytesIO()
+                real_pil.save(real_buf, format='PNG')
+                real_bytes = real_buf.getvalue()
+
+                wandb.log({
+                    "Generated Grid": wandb.Image(fake_bytes, caption=f"epoch_{epoch:03d}"),
+                    "Real Grid": wandb.Image(real_bytes, caption=f"epoch_{epoch:03d}"),
+                    "epoch": epoch
+                })
+            except Exception as e2:
+                # Final fallback: log the raw tensors and error
+                wandb.log({
+                    "Generated Grid": wandb.Image(img_grid_fake_cpu, caption=f"epoch_{epoch:03d}"),
+                    "Real Grid": wandb.Image(img_grid_real_cpu, caption=f"epoch_{epoch:03d}"),
+                    "epoch": epoch
+                })
+                wandb.log({
+                    "wandb_image_error": f"Primary: {str(e)}, Fallback: {str(e2)}"
+                }, commit=False)
     gen.train()
 
 

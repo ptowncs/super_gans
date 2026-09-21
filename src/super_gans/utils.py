@@ -1,6 +1,7 @@
 import gc  # Good practice for cleaning memory during training
 import os
 import csv  # For CSV logging
+import numpy as np  # For numpy array operations
 from pathlib import Path
 
 import psutil  # Used for RAM tracking print statements
@@ -295,20 +296,12 @@ def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
     Captures the current state of generation vs real images.
     Works for both standard GANs (gen_input = fixed noise) and SRGAN (gen_input = low-res images).
     """
-    # EARLY DEBUG: Log that we entered the function
-    wandb.log({"viz_function_called": True, "epoch": epoch}, commit=False)
-    print(f"[VIZ DEBUG] Function called for epoch {epoch}", flush=True)
-    
     gen.eval()
     with torch.inference_mode():
         # 1. Generate fakes (Shape: N, 1, H, W)
-        raw_fake = gen(gen_input)  # Get raw output before any processing
-        print(f"[VIZ DEBUG] Raw fake from generator: shape {raw_fake.shape}, min {raw_fake.min().item():.6f}, max {raw_fake.max().item():.6f}", flush=True)
-        
-        fake = raw_fake.view(-1, cfg.num_channels, cfg.image_size, cfg.image_size)
-        print(f"[VIZ DEBUG] After view: fake shape {fake.shape}", flush=True)
+        fake = gen(gen_input)
+        fake = fake.view(-1, cfg.num_channels, cfg.image_size, cfg.image_size)
         fake = fake.to(cfg.device)  # Ensure on correct device
-        print(f"[VIZ DEBUG] After .to(device): fake shape {fake.shape}", flush=True)
 
         # 2. Handle real data - caller may pass wrong format/tensor
         # If real_batch is already image format [N, 1, H, W], use as-is
@@ -316,95 +309,67 @@ def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
         if len(real_batch.shape) == 4 and real_batch.shape[1] == cfg.num_channels:
             # Already in image format [N, 1, H, W] (e.g., from SRGAN or mistaken caller)
             real = real_batch.to(cfg.device)
-            print(f"[VIZ DEBUG] real_batch is image format [N,1,H,W], real shape {real.shape}", flush=True)
         else:
             # Flattened format [N, H*W] - needs reshaping (what working caller should pass)
             real = real_batch.view(-1, cfg.num_channels, cfg.image_size, cfg.image_size)
-            print(f"[VIZ DEBUG] real_batch.view result: real shape {real.shape}", flush=True)
             real = real.to(cfg.device)  # Ensure on correct device
-            print(f"[VIZ DEBUG] After .to(device): real shape {real.shape}", flush=True)
-
-        # DEBUG: Check for negative values in processed tensors (should exist after Tanh)
-        fake_has_neg = (fake < 0).any().item()
-        real_has_neg = (real < 0).any().item()
-        raw_fake_has_neg = (raw_fake < 0).any().item()
-        print(f"[VIZ DEBUG] Raw fake has negative values: {raw_fake_has_neg}", flush=True)
-        print(f"[VIZ DEBUG] Fake has negative values: {fake_has_neg}", flush=True)
-        print(f"[VIZ DEBUG] Real has negative values: {real_has_neg}", flush=True)
-        wandb.log({
-            "viz_raw_fake_has_neg": raw_fake_has_neg,
-            "viz_fake_has_neg": fake_has_neg,
-            "viz_real_has_neg": real_has_neg,
-            "epoch": epoch
-        }, commit=False)
 
         # FIX: Handle variable-sized DataLoader batches (last batch often smaller)
         # Ensures both tensors have matching batch sizes for make_grid()
-        # Also handle edge case where batch size could be 0
         min_batch = min(fake.shape[0], real.shape[0])
-        print(f"[VIZ DEBUG] min_batch: {min_batch}, fake.shape[0]: {fake.shape[0]}, real.shape[0]: {real.shape[0]}", flush=True)
-        if min_batch > 0:  # Only proceed if we have valid batch size
-            if fake.shape[0] != min_batch:
-                fake = fake[:min_batch]
-                print(f"[VIZ DEBUG] fake truncated to {fake.shape[0]}", flush=True)
-            if real.shape[0] != min_batch:
-                real = real[:min_batch]
-                print(f"[VIZ DEBUG] real truncated to {real.shape[0]}", flush=True)
+        if fake.shape[0] != min_batch:
+            fake = fake[:min_batch]
+        if real.shape[0] != min_batch:
+            real = real[:min_batch]
 
-            # 3. Convert both from 1-channel to 3-channel (RGB)
-            # This is necessary so the grid looks consistent in all viewers
-            fake_rgb = fake.repeat(1, 3, 1, 1)
-            real_rgb = real.repeat(1, 3, 1, 1)
-            print(f"[VIZ DEBUG] fake_rgb shape: {fake_rgb.shape}, real_rgb shape: {real_rgb.shape}", flush=True)
+        # 3. Convert both from 1-channel to 3-channel (RGB)
+        # This is necessary so the grid looks consistent in all viewers
+        fake_rgb = fake.repeat(1, 3, 1, 1)
+        real_rgb = real.repeat(1, 3, 1, 1)
 
-            # 4. Create grids using Torchvision's built-in normalization
-            # normalize=True: shifts the range to [0, 1]
-            # value_range=(-1, 1): tells the function our Tanh/Transform output is [-1, 1]
-            img_grid_fake = make_grid(fake_rgb, nrow=8, normalize=True, value_range=(-1, 1))
-            img_grid_real = make_grid(real_rgb, nrow=8, normalize=True, value_range=(-1, 1))
-            print(f"[VIZ DEBUG] img_grid_fake shape: {img_grid_fake.shape}, img_grid_real shape: {img_grid_real.shape}", flush=True)
+        # 4. Create grids using Torchvision's built-in normalization
+        # normalize=True: shifts the range to [0, 1]
+        # value_range=(-1, 1): tells the function our Tanh/Transform output is [-1, 1]
+        img_grid_fake = make_grid(fake_rgb, nrow=8, normalize=True, value_range=(-1, 1))
+        img_grid_real = make_grid(real_rgb, nrow=8, normalize=True, value_range=(-1, 1))
+
+        # 5. Prepare images for WandB - ensure proper format and data type
+        # Move to CPU and detach from computation graph
+        img_grid_fake_cpu = img_grid_fake.detach().cpu()
+        img_grid_real_cpu = img_grid_real.detach().cpu()
+        
+        # Convert to numpy array and ensure correct data type for wandb.Image()
+        # wandb.Image expects either:
+        # - UINT8 array with shape (H, W, 3) or (H, W) for grayscale
+        # - FLOAT32 array with values in [0, 1] and shape (H, W, 3) or (H, W)
+        # - Or CHW format tensors (which we have) - but let's be explicit
+        
+        try:
+            # Convert to numpy and ensure we have the right format
+            fake_np = img_grid_fake_cpu.numpy()
+            real_np = img_grid_real_cpu.numpy()
             
-            # DEBUG: Log actual pixel value ranges to see if we're getting black/white images
-            f_min, f_max = img_grid_fake.min().item(), img_grid_fake.max().item()
-            r_min, r_max = img_grid_real.min().item(), img_grid_real.max().item()
-            f_mean, f_std = img_grid_fake.mean().item(), img_grid_fake.std().item()
-            r_mean, r_std = img_grid_real.mean().item(), img_grid_real.std().item()
-            print(f"[VIZ DEBUG] Fake grid range: [{f_min:.6f}, {f_max:.6f}], mean±std: {f_mean:.6f}±{f_std:.6f}", flush=True)
-            print(f"[VIZ DEBUG] Real grid range: [{r_min:.6f}, {r_max:.6f}], mean±std: {r_mean:.6f}±{r_std:.6f}", flush=True)
+            # wandb.Image can handle CHW format, but let's verify the data range
+            # The values should already be in [0, 1] from make_grid(normalize=True, value_range=(-1,1))
+            # But let's clip to be safe and ensure no NaN/inf values
+            fake_np = np.clip(fake_np, 0, 1)
+            real_np = np.clip(real_np, 0, 1)
             
-            # Log to Wandb for tracking
+            # Log to WandB
             wandb.log({
-                "viz_fake_min": f_min, "viz_fake_max": f_max,
-                "viz_real_min": r_min, "viz_real_max": r_max,
-                "viz_fake_mean": f_mean, "viz_fake_std": f_std,
-                "viz_real_mean": r_mean, "viz_real_std": r_std,
+                "Generated Grid": wandb.Image(fake_np, caption=f"epoch_{epoch:03d}"),
+                "Real Grid": wandb.Image(real_np, caption=f"epoch_{epoch:03d}"),
                 "epoch": epoch
             }, commit=False)
-
-            # PRE-LOG DEBUG: Log that we're about to log images
-            wandb.log({"viz_about_to_log_images": True, "epoch": epoch}, commit=False)
-            
-            # 5. Log to WandB
-            # Move to CPU and detach from computation graph for WandB logging
-            img_grid_fake_cpu = img_grid_fake.detach().cpu()
-            img_grid_real_cpu = img_grid_real.detach().cpu()
-            print(f"[VIZ DEBUG] Moving to CPU for Wandb logging", flush=True)
-
-            try:
-                wandb.log({
-                    "Generated Grid": wandb.Image(img_grid_fake_cpu, caption=f"epoch_{epoch:03d}"),
-                    "Real Grid": wandb.Image(img_grid_real_cpu, caption=f"epoch_{epoch:03d}"),
-                    "epoch": epoch
-                }, commit=False)
-                print(f"[VIZ DEBUG] Wandb logging succeeded for epoch {epoch}", flush=True)
-            except Exception as e:
-                # Fallback: log error to wandb so we know if visualization fails
-                wandb.log({"visualization_error": str(e), "epoch": epoch}, commit=False)
-                print(f"[VIZ DEBUG] Wandb logging failed: {e}", flush=True)
-        else:
-            # Log warning if batch size is invalid
-            wandb.log({"visualization_warning": f"Invalid batch size: fake={fake.shape[0]}, real={real.shape[0]}", "epoch": epoch}, commit=False)
-            print(f"[VIZ DEBUG] Invalid batch size: fake={fake.shape[0]}, real={real.shape[0]}", flush=True)
+        except Exception as e:
+            # Fallback to original method if numpy conversion fails
+            wandb.log({
+                "Generated Grid": wandb.Image(img_grid_fake_cpu, caption=f"epoch_{epoch:03d}"),
+                "Real Grid": wandb.Image(img_grid_real_cpu, caption=f"epoch_{epoch:03d}"),
+                "epoch": epoch
+            }, commit=False)
+            # Log the error for debugging
+            wandb.log({"wandb_image_error": str(e), "epoch": epoch}, commit=False)
     gen.train()
 
 

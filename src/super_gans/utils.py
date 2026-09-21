@@ -348,6 +348,23 @@ def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
             img_grid_fake = make_grid(fake_rgb, nrow=8, normalize=True, value_range=(-1, 1))
             img_grid_real = make_grid(real_rgb, nrow=8, normalize=True, value_range=(-1, 1))
             print(f"[VIZ DEBUG] img_grid_fake shape: {img_grid_fake.shape}, img_grid_real shape: {img_grid_real.shape}", flush=True)
+            
+            # DEBUG: Log actual pixel value ranges to see if we're getting black/white images
+            f_min, f_max = img_grid_fake.min().item(), img_grid_fake.max().item()
+            r_min, r_max = img_grid_real.min().item(), img_grid_real.max().item()
+            f_mean, f_std = img_grid_fake.mean().item(), img_grid_fake.std().item()
+            r_mean, r_std = img_grid_real.mean().item(), img_grid_real.std().item()
+            print(f"[VIZ DEBUG] Fake grid range: [{f_min:.6f}, {f_max:.6f}], mean±std: {f_mean:.6f}±{f_std:.6f}", flush=True)
+            print(f"[VIZ DEBUG] Real grid range: [{r_min:.6f}, {r_max:.6f}], mean±std: {r_mean:.6f}±{r_std:.6f}", flush=True)
+            
+            # Log to Wandb for tracking
+            wandb.log({
+                "viz_fake_min": f_min, "viz_fake_max": f_max,
+                "viz_real_min": r_min, "viz_real_max": r_max,
+                "viz_fake_mean": f_mean, "viz_fake_std": f_std,
+                "viz_real_mean": r_mean, "viz_real_std": r_std,
+                "epoch": epoch
+            }, commit=False)
 
             # PRE-LOG DEBUG: Log that we're about to log images
             wandb.log({"viz_about_to_log_images": True, "epoch": epoch}, commit=False)

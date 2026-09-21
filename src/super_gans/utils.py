@@ -333,10 +333,76 @@ def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
         img_grid_fake = make_grid(fake_rgb, nrow=8, normalize=True, value_range=(-1, 1))
         img_grid_real = make_grid(real_rgb, nrow=8, normalize=True, value_range=(-1, 1))
 
+        # DEBUG: Save images locally to verify they are not actually black
+        try:
+            import os
+            debug_dir = "/tmp/viz_debug"
+            os.makedirs(debug_dir, exist_ok=True)
+            
+            # Save fake grid as numpy for later inspection
+            fake_to_save = img_grid_fake.detach().cpu()
+            real_to_save = img_grid_real.detach().cpu()
+            
+            np.save(f"{debug_dir}/fake_grid_epoch{epoch:03d}.npy", fake_to_save.numpy())
+            np.save(f"{debug_dir}/real_grid_epoch{epoch:03d}.npy", real_to_save.numpy())
+            
+            # Also save as actual PNG files if possible
+            try:
+                from PIL import Image
+                import numpy as np
+                
+                # Convert fake grid to HWC uint8 for PIL
+                fake_hwc = np.transpose(fake_to_save.numpy(), (1, 2, 0))  # CHW -> HWC
+                fake_hwc = np.clip(fake_hwc * 255, 0, 255).astype(np.uint8)
+                if fake_hwc.shape[2] == 1:  # Grayscale
+                    fake_hwc = fake_hwc[:, :, 0]
+                fake_pil = Image.fromarray(fake_hwc)
+                fake_pil.save(f"{debug_dir}/fake_grid_epoch{epoch:03d}.png")
+                
+                # Convert real grid to HWC uint8 for PIL
+                real_hwc = np.transpose(real_to_save.numpy(), (1, 2, 0))  # CHW -> HWC
+                real_hwc = np.clip(real_hwc * 255, 0, 255).astype(np.uint8)
+                if real_hwc.shape[2] == 1:  # Grayscale
+                    real_hwc = real_hwc[:, :, 0]
+                real_pil = Image.fromarray(real_hwc)
+                real_pil.save(f"{debug_dir}/real_grid_epoch{epoch:03d}.png")
+            except ImportError:
+                # PIL not available, skip PNG saving
+                pass
+            except Exception as png_error:
+                # Don't let PNG saving errors break the main function
+                pass
+        except Exception as save_error:
+            # Don't let saving errors break the main function
+            pass
+
         # 5. Prepare images for WandB - ensure proper format and data type
         # Move to CPU and detach from computation graph
         img_grid_fake_cpu = img_grid_fake.detach().cpu()
         img_grid_real_cpu = img_grid_real.detach().cpu()
+        
+        # Log image statistics to Wandb for debugging
+        fake_min = img_grid_fake_cpu.min().item()
+        fake_max = img_grid_fake_cpu.max().item()
+        fake_mean = img_grid_fake_cpu.mean().item()
+        fake_std = img_grid_fake_cpu.std().item()
+        
+        real_min = img_grid_real_cpu.min().item()
+        real_max = img_grid_real_cpu.max().item()
+        real_mean = img_grid_real_cpu.mean().item()
+        real_std = img_grid_real_cpu.std().item()
+        
+        wandb.log({
+            "viz_fake_min": fake_min,
+            "viz_fake_max": fake_max,
+            "viz_fake_mean": fake_mean,
+            "viz_fake_std": fake_std,
+            "viz_real_min": real_min,
+            "viz_real_max": real_max,
+            "viz_real_mean": real_mean,
+            "viz_real_std": real_std,
+            "epoch": epoch
+        }, commit=False)
         
         # Convert to numpy array and ensure correct data type for wandb.Image()
         # wandb.Image expects either:
@@ -349,25 +415,31 @@ def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
             fake_np = img_grid_fake_cpu.numpy()
             real_np = img_grid_real_cpu.numpy()
             
-            # wandb.Image can handle CHW format, but let's verify the data range
+            # Convert CHW to HWC format for wandb.Image (often more reliable)
+            # Shape: (C, H, W) -> (H, W, C)
+            if fake_np.shape[0] == 3:  # RGB image
+                fake_np = np.transpose(fake_np, (1, 2, 0))  # CHW -> HWC
+            if real_np.shape[0] == 3:  # RGB image
+                real_np = np.transpose(real_np, (1, 2, 0))  # CHW -> HWC
+            
             # The values should already be in [0, 1] from make_grid(normalize=True, value_range=(-1,1))
             # But let's clip to be safe and ensure no NaN/inf values
             fake_np = np.clip(fake_np, 0, 1)
             real_np = np.clip(real_np, 0, 1)
             
-            # Log to WandB
+            # Log to WandB with HWC format
             wandb.log({
                 "Generated Grid": wandb.Image(fake_np, caption=f"epoch_{epoch:03d}"),
                 "Real Grid": wandb.Image(real_np, caption=f"epoch_{epoch:03d}"),
                 "epoch": epoch
-            }, commit=False)
+            }, commit=True)  # Changed to commit=True to ensure immediate sending
         except Exception as e:
             # Fallback to original method if numpy conversion fails
             wandb.log({
                 "Generated Grid": wandb.Image(img_grid_fake_cpu, caption=f"epoch_{epoch:03d}"),
                 "Real Grid": wandb.Image(img_grid_real_cpu, caption=f"epoch_{epoch:03d}"),
                 "epoch": epoch
-            }, commit=False)
+            }, commit=True)
             # Log the error for debugging
             wandb.log({"wandb_image_error": str(e), "epoch": epoch}, commit=False)
     gen.train()

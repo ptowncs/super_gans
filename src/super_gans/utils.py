@@ -229,14 +229,14 @@ def calculate_fid_sample(gen, loader, fid_metric):
 
             fid_metric.update(fake_rgb, real=False)
 
-    # --- 3. Compute and Log ---
-    fid_score = fid_metric.compute().item()
+        # --- 3. Compute and Log ---
+        fid_score = fid_metric.compute().item()
 
-    if cfg.device == "cuda":
-        torch.cuda.empty_cache()
+        if cfg.device == "cuda":
+            torch.cuda.empty_cache()
 
-    gen.train()
-    return fid_score
+        gen.train()
+        return fid_score
 
 
 def save_model(gen, disc, opt_gen, opt_disc, epoch, filename="checkpoint.pth"):
@@ -336,48 +336,32 @@ def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
         # Save images locally for user verification
         local_visuals_dir = "./results/visuals"
         os.makedirs(local_visuals_dir, exist_ok=True)
-        fake_path = os.path.join(local_visuals_dir, f"fake_epoch_{epoch:03d}.png")
-        real_path = os.path.join(local_visuals_dir, f"real_epoch_{epoch:03d}.png")
+        fake_path_png = os.path.join(local_visuals_dir, f"fake_epoch_{epoch:03d}.png")
+        real_path_png = os.path.join(local_visuals_dir, f"real_epoch_{epoch:03d}.png")
         try:
-            save_image(img_grid_fake, fake_path)
-            save_image(img_grid_real, real_path)
+            save_image(img_grid_fake, fake_path_png)
+            save_image(img_grid_real, real_path_png)
         except Exception as e:
             # Don't let saving errors break the main function
             print(f"Warning: Failed to save images locally: {e}")
-            try:
-                from PIL import Image
-                # Use global numpy import
-                # Convert fake grid to HWC uint8 for PIL
-                fake_hwc = np.transpose(fake_to_save.numpy(), (1, 2, 0))  # CHW -> HWC
-                fake_hwc = np.clip(fake_hwc * 255, 0, 255).astype(np.uint8)
-                if fake_hwc.shape[2] == 1:  # Grayscale
-                    fake_hwc = fake_hwc[:, :, 0]
-                fake_pil = Image.fromarray(fake_hwc)
-                fake_pil.save(f"{debug_dir}/fake_grid_epoch{epoch:03d}.png")
-
-                # Convert real grid to HWC uint8 for PIL
-                real_hwc = np.transpose(real_to_save.numpy(), (1, 2, 0))  # CHW -> HWC
-                real_hwc = np.clip(real_hwc * 255, 0, 255).astype(np.uint8)
-                if real_hwc.shape[2] == 1:  # Grayscale
-                    real_hwc = real_hwc[:, :, 0]
-                real_pil = Image.fromarray(real_hwc)
-                real_pil.save(f"{debug_dir}/real_grid_epoch{epoch:03d}.png")
-            except ImportError:
-                # PIL not available, skip PNG saving
-                pass
-            except Exception as png_error:
-                # Don't let PNG saving errors break the main function
-                pass
-        except Exception as save_error:
-            # Don't let saving errors break the main function
-            pass
 
         # 5. Prepare images for WandB - ensure proper format and data type
         # Move to CPU and detach from computation graph
         img_grid_fake_cpu = img_grid_fake.detach().cpu()
         img_grid_real_cpu = img_grid_real.detach().cpu()
 
-        # Log image statistics to Wandb for debugging
+        # Convert to numpy array for WandB - ensure correct format
+        # Detach, move to CPU, convert to numpy
+        fake_np = img_grid_fake_cpu.permute(1, 2, 0).cpu().numpy()
+        real_np = img_grid_real_cpu.permute(1, 2, 0).cpu().numpy()
+
+        # Ensure correct data type and value range
+        # Values should already be in [0, 1] from make_grid(normalize=True, value_range=(-1,1))
+        # Convert to uint8 [0,255] to match what local save_image produces
+        fake_np = (fake_np * 255).astype(np.uint8)
+        real_np = (real_np * 255).astype(np.uint8)
+
+        # Log image statistics and images to WandB
         fake_min = img_grid_fake_cpu.min().item()
         fake_max = img_grid_fake_cpu.max().item()
         fake_mean = img_grid_fake_cpu.mean().item()
@@ -388,79 +372,25 @@ def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
         real_mean = img_grid_real_cpu.mean().item()
         real_std = img_grid_real_cpu.std().item()
 
-        wandb.log({
-            "viz_fake_min": fake_min,
-            "viz_fake_max": fake_max,
-            "viz_fake_mean": fake_mean,
-            "viz_fake_std": fake_std,
-            "viz_real_min": real_min,
-            "viz_real_max": real_max,
-            "viz_real_mean": real_mean,
-            "viz_real_std": real_std,
-            "epoch": epoch
-        }, commit=False)
-
-        # Convert to numpy array for WandB - ensure correct format
-        try:
-            # Convert from CHW to HWC format for wandb.Image
-            # Detach, move to CPU, convert to numpy
-            fake_np = img_grid_fake_cpu.permute(1, 2, 0).cpu().numpy()
-            real_np = img_grid_real_cpu.permute(1, 2, 0).cpu().numpy()
-
-            # Ensure correct data type and value range
-            # Values should already be in [0, 1] from make_grid(normalize=True, value_range=(-1,1))
-            # But explicitly convert to float32 and clip to be safe
-            fake_np = fake_np.astype(np.float32)
-            real_np = real_np.astype(np.float32)
-            fake_np = np.clip(fake_np, 0, 1)
-            real_np = np.clip(real_np, 0, 1)
-
-            # Log to WandB
-            wandb.log({
-                "Generated Grid": wandb.Image(fake_np, caption=f"epoch_{epoch:03d}"),
-                "Real Grid": wandb.Image(real_np, caption=f"epoch_{epoch:03d}"),
-                "epoch": epoch
-            })
-        except Exception as e:
-            # Fallback: try a different approach if the above fails
-            try:
-                # Alternative: log as uint8 PNG bytes
-                import io
-                from PIL import Image
-
-                # Fake image
-                fake_pil_np = (img_grid_fake_cpu.permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
-                if fake_pil_np.shape[2] == 1:  # Grayscale
-                    fake_pil_np = fake_pil_np[:, :, 0]
-                fake_pil = Image.fromarray(fake_pil_np)
-                fake_buf = io.BytesIO()
-                fake_pil.save(fake_buf, format='PNG')
-                fake_bytes = fake_buf.getvalue()
-
-                # Real image
-                real_pil_np = (img_grid_real_cpu.permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
-                if real_pil_np.shape[2] == 1:  # Grayscale
-                    real_pil_np = real_pil_np[:, :, 0]
-                real_pil = Image.fromarray(real_pil_np)
-                real_buf = io.BytesIO()
-                real_pil.save(real_buf, format='PNG')
-                real_bytes = real_buf.getvalue()
-
-                wandb.log({
-                    "Generated Grid": wandb.Image(fake_bytes, caption=f"epoch_{epoch:03d}"),
-                    "Real Grid": wandb.Image(real_bytes, caption=f"epoch_{epoch:03d}"),
-                    "epoch": epoch
-                })
-            except Exception as e2:
-                # Final fallback: log the raw tensors and error
-                wandb.log({
-                    "Generated Grid": wandb.Image(img_grid_fake_cpu, caption=f"epoch_{epoch:03d}"),
-                    "Real Grid": wandb.Image(img_grid_real_cpu, caption=f"epoch_{epoch:03d}"),
-                    "epoch": epoch
-                })
-                wandb.log({
-                    "wandb_image_error": f"Primary: {str(e)}, Fallback: {str(e2)}"
-                }, commit=False)
+        wandb.log(
+            {
+                "viz_fake_min": fake_min,
+                "viz_fake_max": fake_max,
+                "viz_fake_mean": fake_mean,
+                "viz_fake_std": fake_std,
+                "viz_real_min": real_min,
+                "viz_real_max": real_max,
+                "viz_real_mean": real_mean,
+                "viz_real_std": real_std,
+                "Generated Grid": wandb.Image(
+                    fake_np, caption=f"epoch_{epoch:03d}"
+                ),
+                "Real Grid": wandb.Image(
+                    real_np, caption=f"epoch_{epoch:03d}"
+                ),
+                "epoch": epoch,
+            }
+        )
     gen.train()
 
 

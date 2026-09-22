@@ -3,6 +3,7 @@ import os
 import csv  # For CSV logging
 import numpy as np  # For numpy array operations
 from pathlib import Path
+import shutil
 
 import psutil  # Used for RAM tracking print statements
 
@@ -289,6 +290,45 @@ def load_best_model(gen, checkpoint_path):
         print(f"Failed to load best model from {checkpoint_path}: {e}")
         # Fallback to just using current model
         pass
+
+
+def restore_checkpoint(
+    src_dir: str | Path,
+    dest_dir: str | Path | None = None,
+) -> bool:
+    src_dir = Path(src_dir)
+
+    if dest_dir is None:
+        dest_dir = Path(cfg.MODELS_DIR) / "gan_checkpoints"
+    else:
+        dest_dir = Path(dest_dir)
+
+    if not src_dir.exists():
+        print(f"Checkpoint not found: {src_dir}")
+        return False
+
+    if not src_dir.is_dir():
+        raise ValueError(f"Checkpoint source is not a directory: {src_dir}")
+
+    copied_count = 0
+
+    for src_path in src_dir.rglob("*"):
+        if not src_path.is_file():
+            continue
+
+        rel_path = src_path.relative_to(src_dir)
+        dest_path = dest_dir / rel_path
+
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src_path, dest_path)
+
+        copied_count += 1
+
+    print(f"Restored {copied_count} checkpoint artifact(s)")
+    print(f"  From: {src_dir}")
+    print(f"  To:   {dest_dir}")
+
+    return True
 
 
 def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):

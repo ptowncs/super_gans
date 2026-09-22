@@ -99,7 +99,7 @@ def training_loop(
     criterion = nn.BCEWithLogitsLoss()
 
     loader = DataLoader(
-        dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=2, pin_memory=True
+        dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=cfg.num_workers, pin_memory=cfg.num_workers > 0
     )
     # feature=64 uses a lower layer of Inception; it's faster for monitoring
     fid_metric = FrechetInceptionDistance(feature=cfg.fid_dims, normalize=True).to(

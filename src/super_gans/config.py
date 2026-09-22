@@ -114,10 +114,10 @@ both_transforms = A.Compose(
         # 'border_mode=cv2.BORDER_CONSTANT' ensures no weird mirroring artifacts on the edges.
         A.Affine(
             translate_percent=0.05,  # Minor shifting (5% max)
-            scale=(0.95, 1.05),      # Minor zoom (5% max -> 0.95 to 1.05)
-            rotate=5,                # ONLY rotate up to 5 degrees! Prevents losing corners.
+            scale=(0.95, 1.05),  # Minor zoom (5% max -> 0.95 to 1.05)
+            rotate=5,  # ONLY rotate up to 5 degrees! Prevents losing corners.
             border_mode=cv2.BORDER_CONSTANT,
-            fill=0,                  # Pads any tiny exposed edge with black
+            fill=0,  # Pads any tiny exposed edge with black
             p=0.5,
         ),
     ]

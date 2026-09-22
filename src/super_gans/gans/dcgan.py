@@ -90,7 +90,7 @@ def training_loop(
     opt_gen,
     dataset,
     wandb,
-    start_epoch=0,
+    start_epoch=1,
     best_fid=float("inf"),
     best_fid_epoch=0,
 ):
@@ -113,7 +113,7 @@ def training_loop(
     # Setup CSV logging
     train_csv_path = utils.setup_training_csv("dcgan")
 
-    for epoch in range(start_epoch, cfg.num_epochs):
+    for epoch in range(start_epoch, cfg.num_epochs + 1):
         process = psutil.Process(os.getpid())
         print(
             f"Epoch: {epoch} | RAM GB: {process.memory_info().rss / 1024**3:.2f} \
@@ -154,6 +154,14 @@ def training_loop(
             lossG.backward()
             opt_gen.step()
 
+            # --- VISUALS AT START OF EPOCH ---
+            if batch_idx == 0 and (epoch == start_epoch or epoch % 10 == 0):
+                print(
+                    f"Epoch [{epoch}/{cfg.num_epochs}] Loss D: {lossD.item():.4f}, Loss G: {lossG.item():.4f}"
+                )
+                utils.log_tensorboard_visuals(wandb, gen, real, fixed_noise, epoch)
+            
+
         # --- LOG LOSSES EVERY EPOCH ---
         # Staging loss data. commit=False ensures we wait to push until the end of the epoch.
         wandb.log(
@@ -165,15 +173,9 @@ def training_loop(
             commit=False,
         )
 
-        # --- VISUALS AT START OF EPOCH ---
-        if epoch % 10 == 0:
-            print(
-                f"Epoch [{epoch}/{cfg.num_epochs}] Loss D: {lossD.item():.4f}, Loss G: {lossG.item():.4f}"
-            )
-            utils.log_tensorboard_visuals(wandb, gen, real, fixed_noise, epoch)
-
+        
         # --- FID CALCULATION AT END OF EPOCH ---
-        if (epoch % cfg.fid_interval == 0) or (epoch == cfg.num_epochs - 1):
+        if (epoch == start_epoch) or (epoch % cfg.fid_interval == 0) or (epoch == cfg.num_epochs):
             utils.save_model(
                 gen, disc, opt_gen, opt_disc, epoch, filename="latest_gan.pth"
             )
@@ -255,18 +257,18 @@ def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
     opt_disc = optim.Adam(disc.parameters(), lr=cfg.lr, betas=cfg.betas)
     opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr, betas=cfg.betas)
 
-    start_epoch = 0
+    start_epoch = 1
     if restart:
         # Check for existing checkpoint to resume training
         start_epoch = utils.reload_checkpoint_model(gen, disc, opt_gen, opt_disc)
 
-    if start_epoch == 0:
+    if start_epoch == 1:
         print("Starting training from scratch")
     else:
         print(f"Resuming training from epoch {start_epoch}")
 
     opt_disc, opt_gen, best_fid, best_fid_epoch = training_loop(
-        disc, gen, opt_disc, opt_gen, train_dataset, wandb, start_epoch=start_epoch
+        disc, gen, opt_disc, opt_gen, train_dataset, wandb, start_epoch, best_fid, best_fid_epoch
     )
     utils.save_model(
         gen, disc, opt_gen, opt_disc, f"epoch:{cfg.num_epochs}", "dc_gan_checkpoint.pth"

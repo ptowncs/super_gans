@@ -59,7 +59,7 @@ def training_loop(
     opt_gen,
     dataset,
     wandb,
-    start_epoch=0,
+    start_epoch=1,
     best_fid=float("inf"),
     best_fid_epoch=0,
 ):
@@ -87,7 +87,7 @@ def training_loop(
     # Setup CSV logging
     train_csv_path = utils.setup_training_csv("simple_gan")
 
-    for epoch in range(start_epoch, cfg.num_epochs):
+    for epoch in range(start_epoch, cfg.num_epochs + 1):
         process = psutil.Process(os.getpid())
         print(
             f"Epoch: {epoch} | RAM GB: {process.memory_info().rss / 1024**3:.2f} \
@@ -129,6 +129,14 @@ def training_loop(
             lossG.backward()
             opt_gen.step()
 
+            # --- VISUALS AT START OF EPOCH ---
+            if batch_idx == 0 and (epoch == start_epoch or epoch % 10 == 0):
+                print(
+                    f"Epoch [{epoch}/{cfg.num_epochs}] Loss D: {lossD.item():.4f}, Loss G: {lossG.item():.4f}"
+                )
+                utils.log_tensorboard_visuals(wandb, gen, real, fixed_noise, epoch)
+            
+
         # --- LOG LOSSES EVERY EPOCH ---
         # Staging loss data. commit=False ensures we wait to push until the end of the epoch.
         wandb.log(
@@ -140,15 +148,9 @@ def training_loop(
             commit=False,
         )
 
-        # --- VISUALS AT START OF EPOCH ---
-        if epoch % 10 == 0:
-            print(
-                f"Epoch [{epoch}/{cfg.num_epochs}] Loss D: {lossD.item():.4f}, Loss G: {lossG.item():.4f}"
-            )
-            utils.log_tensorboard_visuals(wandb, gen, real, fixed_noise, epoch)
-
+        
         # --- FID CALCULATION AT END OF EPOCH ---
-        if (epoch % cfg.fid_interval == 0) or (epoch == cfg.num_epochs - 1):
+        if (epoch == start_epoch) or (epoch % cfg.fid_interval == 0) or (epoch == cfg.num_epochs):
             utils.save_model(
                 gen, disc, opt_gen, opt_disc, epoch, filename="latest_gan.pth"
             )
@@ -157,14 +159,10 @@ def training_loop(
 
             # VERIFIED FIX: Bundle 'epoch' into the dictionary and commit the full row to WandB
             wandb.log({"Metrics/FID": current_fid, "epoch": epoch}, commit=True)
-            print(f"--- Epoch [{epoch}] FID Score: {current_fid:.4f} ---")
-
+            
             # Log losses and FID to training CSV
-            utils.log_training_row(train_csv_path, epoch,
-                                  loss_g=lossG.item(),
-                                  loss_d=lossD.item(),
-                                  fid_train=current_fid)
-            print(f"Epoch [{epoch}/{cfg.num_epochs}] CSV: G_loss={lossG.item():.6f}, D_loss={lossD.item():.6f}, FID_train={current_fid:.6f}")
+            utils.log_training_row(train_csv_path, epoch, loss_g=lossG.item(), loss_d=lossD.item(), fid_train=current_fid)
+            print(f"Epoch [{epoch}/{cfg.num_epochs}] CSV: G_loss={lossG.item():.6f}, D_loss={lossD.item():.6f}, FID_train={current_fid:.4f}")
 
             # Checkpoint: Save as 'best' if quality improved
             if current_fid < best_fid:
@@ -173,6 +171,8 @@ def training_loop(
                 utils.save_model(
                     gen, disc, opt_gen, opt_disc, epoch, filename="best_gan.pth"
                 )
+            print(f"Epoch [{epoch}/{cfg.num_epochs}]: Best_fid_score={best_fid:.4f}, Best_fid_epoch={best_fid_epoch}")    
+            
         else:
             # VERIFIED FIX: Commits the losses and moves the custom timeline forward on non-FID epochs
             wandb.log({"epoch": epoch}, commit=True)
@@ -230,7 +230,7 @@ def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
     opt_disc = optim.Adam(disc.parameters(), lr=cfg.lr, betas=cfg.betas)
     opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr, betas=cfg.betas)
 
-    start_epoch = 0
+    start_epoch = 1
     if restart:
         # Check for existing checkpoint to resume training
         start_epoch = utils.reload_checkpoint_model(gen, disc, opt_gen, opt_disc)
@@ -239,7 +239,7 @@ def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
     train_csv_path = utils.setup_training_csv("simple_gan")
     val_csv_path = utils.setup_validation_csv("simple_gan")
 
-    if start_epoch == 0:
+    if start_epoch == 1:
         print("Starting training from scratch")
     else:
         print(f"Resuming training from epoch {start_epoch}")

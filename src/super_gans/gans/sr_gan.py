@@ -145,7 +145,7 @@ class VGGLoss(nn.Module):
         vgg_target_features = self.vgg(target)
         return self.loss(vgg_input_features, vgg_target_features)
 
-def train_fn(epoch, loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wandb):
+def train_fn(epoch, loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wandb, start_epoch):
     loop = tqdm(loader, leave=True)
 
     for idx, (low_res, high_res) in enumerate(loop):
@@ -187,12 +187,12 @@ def train_fn(epoch, loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wa
         wandb.log({"Loss/Discriminator": loss_disc.item(), "Loss/Generator": gen_loss.item(), "epoch": epoch}, commit=False)
 
         # --- VISUALS AT START OF EPOCH ---
-        if epoch % 10 == 0:
+        if idx == 0 and (epoch == start_epoch or epoch % 10 == 0):
             print(f"Epoch [{epoch}/{cfg.num_epochs}] Loss D: {loss_disc.item():.4f}, Loss G: {gen_loss.item():.4f}")
             utils.log_tensorboard_visuals(wandb, gen, high_res, low_res, epoch)
 
 
-def training_loop(loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wandb, start_epoch=0, best_fid=float('inf'), best_fid_epoch=0):
+def training_loop(loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wandb, start_epoch=1, best_fid=float('inf'), best_fid_epoch=0):
     # feature=64 uses a lower layer of Inception; it's faster for monitoring
     fid_metric = FrechetInceptionDistance(feature=cfg.fid_dims, normalize=True).to(cfg.device)
 
@@ -203,7 +203,7 @@ def training_loop(loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wand
     # Setup CSV logging
     train_csv_path = utils.setup_training_csv("srgan")
 
-    for epoch in range(start_epoch, cfg.num_epochs):
+    for epoch in range(start_epoch, cfg.num_epochs + 1):
         process = psutil.Process(os.getpid())
         print(f"Epoch: {epoch} | RAM GB: {process.memory_info().rss / 1024**3:.2f} \
               | GPU GB: {torch.cuda.memory_allocated() / 1024**3:.2f}")
@@ -211,7 +211,7 @@ def training_loop(loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wand
 
 
         # --- FID CALCULATION AT END OF EPOCH ---
-        if (epoch % cfg.fid_interval == 0) or (epoch == cfg.num_epochs - 1):
+        if (epoch == start_epoch) or (epoch % cfg.fid_interval == 0) or (epoch == cfg.num_epochs):
             utils.save_model(gen, disc, opt_gen, opt_disc, epoch, filename="latest_gan.pth")
             # Swap loader to yield (high_res, low_res) for FID calculation: (real, generator_input)
             current_fid = metrics.compute_fid_from_real_and_input(gen, ((high_res, low_res) for low_res, high_res in loader), fid_metric)
@@ -322,7 +322,7 @@ class SRGANRealImageWrapper:
         return high_res, 0  # (image, label) format
 
 def main(restart=False, best_fid=float('inf'), best_fid_epoch=0):
-    start_epoch = 0
+    start_epoch = 1
     wandb = createWandB()
     utils.prepare_data()
     loader = DataLoader(load_datapairs(), batch_size=cfg.batch_size, shuffle=True, num_workers=cfg.num_workers, pin_memory=True)
@@ -338,12 +338,12 @@ def main(restart=False, best_fid=float('inf'), best_fid_epoch=0):
         # Check for existing checkpoint to resume training
         start_epoch = utils.reload_checkpoint_model(gen, disc, opt_gen, opt_disc)
 
-    if start_epoch == 0:
+    if start_epoch == 1:
         print("Starting training from scratch")
     else:
         print(f"Resuming training from epoch {start_epoch}")
 
-    opt_disc, opt_gen, best_fid, best_fid_epoch = training_loop(loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wandb, start_epoch=start_epoch)
+    opt_disc, opt_gen, best_fid, best_fid_epoch = training_loop(loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wandb, start_epoch, best_fid, best_fid_epoch)
     utils.save_model(gen, disc, opt_gen, opt_disc, f"epoch:{cfg.num_epochs}", "sr_gan_checkpoint.pth")
 
     real_images_dir = cfg.FID_REAL_DIR

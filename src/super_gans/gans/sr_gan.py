@@ -232,6 +232,7 @@ def training_loop(loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wand
                 best_fid = current_fid
                 best_fid_epoch = epoch
                 utils.save_model(gen, disc, opt_gen, opt_disc, epoch, filename="best_gan.pth")
+            print(f"Epoch [{epoch}/{cfg.num_epochs}]: Best_fid_score={best_fid:.4f}, Best_fid_epoch={best_fid_epoch}")
         else:
             wandb.log({"epoch": epoch}, commit=True)
             print(f"Epoch [{epoch}/{cfg.num_epochs}] CSV: G_loss={gen_loss.item():.6f}, D_loss={loss_disc.item():.6f}, FID_train=N/A")

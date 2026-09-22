@@ -200,6 +200,7 @@ def training_loop(
                 utils.save_model(
                     gen, disc, opt_gen, opt_disc, epoch, filename="best_gan.pth"
                 )
+            print(f"Epoch [{epoch}/{cfg.num_epochs}]: Best_fid_score={best_fid:.4f}, Best_fid_epoch={best_fid_epoch}")
         else:
             # VERIFIED FIX: Commits the losses and moves the custom timeline forward on non-FID epochs
             wandb.log({"epoch": epoch}, commit=True)

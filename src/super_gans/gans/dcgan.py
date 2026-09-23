@@ -21,6 +21,13 @@ import wandb
 from super_gans import utils
 from super_gans import metrics
 
+# Enable cuDNN auto‑tuner to pick the fastest convolution algorithms for fixed‑size inputs
+import torch
+torch.backends.cudnn.benchmark = True
+# Allow TensorFloat‑32 (TF32) on matrix multiplications and cuDNN operations (Ampere+ GPUs)
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
+
 
 class Discriminator(nn.Module):
     """
@@ -76,6 +83,8 @@ class Generator(nn.Module):
             nn.BatchNorm2d(32),
             nn.ReLU(True),
             nn.ConvTranspose2d(32, cfg.num_channels, 4, 2, 1),  # 128
+            # Robust size handling: resize to target image size (efficient for 128x128, adapts if size changes)
+            nn.Upsample(size=(cfg.image_size, cfg.image_size), mode='nearest'),
             nn.Tanh(),
         )
 
@@ -99,7 +108,9 @@ def training_loop(
     criterion = nn.BCEWithLogitsLoss()
 
     loader = DataLoader(
-        dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=cfg.num_workers, pin_memory=cfg.num_workers > 0
+        dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=cfg.num_workers, pin_memory=cfg.num_workers > 0,
+        prefetch_factor=4,
+        persistent_workers=True,
     )
     # feature=64 uses a lower layer of Inception; it's faster for monitoring
     fid_metric = FrechetInceptionDistance(feature=cfg.fid_dims, normalize=True).to(
@@ -255,6 +266,10 @@ def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
 
     disc = Discriminator().to(cfg.device)
     gen = Generator().to(cfg.device)
+    # Compile models for faster training (PyTorch 2.0+)
+    if hasattr(torch, "compile"):
+        disc = torch.compile(disc)
+        gen = torch.compile(gen)
     opt_disc = optim.Adam(disc.parameters(), lr=cfg.lr, betas=cfg.betas)
     opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr, betas=cfg.betas)
 

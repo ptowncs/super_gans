@@ -402,26 +402,26 @@ def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
         real_np = (real_np * 255).astype(np.uint8)
 
         # Log image statistics and images to WandB
-        fake_min = img_grid_fake_cpu.min().item()
-        fake_max = img_grid_fake_cpu.max().item()
-        fake_mean = img_grid_fake_cpu.mean().item()
-        fake_std = img_grid_fake_cpu.std().item()
-
-        real_min = img_grid_real_cpu.min().item()
-        real_max = img_grid_real_cpu.max().item()
-        real_mean = img_grid_real_cpu.mean().item()
-        real_std = img_grid_real_cpu.std().item()
-
+        # fake_min = img_grid_fake_cpu.min().item()
+        # fake_max = img_grid_fake_cpu.max().item()
+        # fake_mean = img_grid_fake_cpu.mean().item()
+        # fake_std = img_grid_fake_cpu.std().item()
+        #
+        # real_min = img_grid_real_cpu.min().item()
+        # real_max = img_grid_real_cpu.max().item()
+        # real_mean = img_grid_real_cpu.mean().item()
+        # real_std = img_grid_real_cpu.std().item()
+        #
         wandb.log(
             {
-                "viz_fake_min": fake_min,
-                "viz_fake_max": fake_max,
-                "viz_fake_mean": fake_mean,
-                "viz_fake_std": fake_std,
-                "viz_real_min": real_min,
-                "viz_real_max": real_max,
-                "viz_real_mean": real_mean,
-                "viz_real_std": real_std,
+                # "viz_fake_min": fake_min,
+                # "viz_fake_max": fake_max,
+                # "viz_fake_mean": fake_mean,
+                # "viz_fake_std": fake_std,
+                # "viz_real_min": real_min,
+                # "viz_real_max": real_max,
+                # "viz_real_mean": real_mean,
+                # "viz_real_std": real_std,
                 "Generated Grid": wandb.Image(
                     fake_np, caption=f"epoch_{epoch:03d}"
                 ),

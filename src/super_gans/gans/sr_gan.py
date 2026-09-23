@@ -24,6 +24,13 @@ import wandb
 from super_gans import utils
 from super_gans import metrics
 
+# Enable cuDNN auto‑tuner to pick the fastest convolution algorithms for fixed‑size inputs
+import torch
+torch.backends.cudnn.benchmark = True
+# Allow TensorFloat‑32 (TF32) on matrix multiplications and cuDNN operations (Ampere+ GPUs)
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
+
 # Force cuDNN to use a deterministic algorithm instead of searching
 #torch.backends.cudnn.benchmark = False
 #torch.backends.cudnn.deterministic = True
@@ -326,7 +333,9 @@ def main(restart=False, best_fid=float('inf'), best_fid_epoch=0):
     start_epoch = 1
     wandb = createWandB()
     utils.prepare_data()
-    loader = DataLoader(load_datapairs(), batch_size=cfg.batch_size, shuffle=True, num_workers=cfg.num_workers, pin_memory=cfg.num_workers > 0)
+    loader = DataLoader(load_datapairs(), batch_size=cfg.batch_size, shuffle=True, num_workers=cfg.num_workers, pin_memory=cfg.num_workers > 0,
+                    prefetch_factor=4,
+                    persistent_workers=True)
     gen = Generator(in_channels=cfg.num_channels).to(cfg.device)
     disc = Discriminator(in_channels=cfg.num_channels).to(cfg.device)
     opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr, betas=(0.9, 0.999))

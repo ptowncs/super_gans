@@ -147,7 +147,6 @@ def training_loop(
             
 
         # --- LOG LOSSES EVERY EPOCH ---
-        # Staging loss data. commit=False ensures we wait to push until the end of the epoch.
         wandb.log(
             {
                 "Loss/Discriminator": lossD.item(),
@@ -166,7 +165,6 @@ def training_loop(
             current_fid = metrics.compute_fid_from_images(gen, loader, fid_metric)
             fid_metric.reset()
 
-            # VERIFIED FIX: Bundle 'epoch' into the dictionary and commit the full row to WandB
             wandb.log({"Metrics/FID": current_fid, "epoch": epoch}, commit=True)
             
             # Log losses and FID to training CSV
@@ -183,7 +181,6 @@ def training_loop(
             print(f"Epoch [{epoch}/{cfg.num_epochs}]: Best_fid_score={best_fid:.4f}, Best_fid_epoch={best_fid_epoch}")    
             
         else:
-            # VERIFIED FIX: Commits the losses and moves the custom timeline forward on non-FID epochs
             wandb.log({"epoch": epoch}, commit=True)
             # Log losses to training CSV (no FID)
             utils.log_training_row(train_csv_path, epoch,

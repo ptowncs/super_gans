@@ -67,7 +67,8 @@ def load_data(split="train"):
     """
     Load pneumonia dataset for the specified split.
     Uses configurable data source (Kaggle or RSNA) via cfg.DATA_SOURCE.
-    Loads ONLY pneumonia images (ignores normal).
+    For Kaggle: loads only pneumonia images (from PNEUMONIA folders).
+    For RSNA: loads only pneumonia images (from pneumonia/ subdirectories after splitting).
     Assumes data has been prepared via prepare_data().
     """
     data_source = cfg.DATA_SOURCE.lower()
@@ -96,19 +97,20 @@ def load_data(split="train"):
             transform=transforms_pipeline,
         )
     elif data_source == "rsna":
-        # Load from split directories (non-recursive - flattened structure)
+        # Load from split directories - pneumonia-only for consistent training with Kaggle
+        # This ensures both datasets are used for pneumonia generation comparison
         if split == "train":
-            image_paths = [p for p in Path(split_dir).glob("train/*") if p.is_file()]
+            image_paths = [p for p in Path(split_dir).glob("train/pneumonia/*") if p.is_file()]
         elif split == "val" or split == "validation":
-            image_paths = [p for p in Path(split_dir).glob("val/*") if p.is_file()]
+            image_paths = [p for p in Path(split_dir).glob("val/pneumonia/*") if p.is_file()]
         elif split == "test":
             # For simplicity, use validation set as test
-            image_paths = [p for p in Path(split_dir).glob("val/*") if p.is_file()]
+            image_paths = [p for p in Path(split_dir).glob("val/pneumonia/*") if p.is_file()]
             print("Using validation set as test set")
         else:
             raise ValueError(f"Unknown split: {split}. Use 'train', 'val', or 'test'")
 
-        # Filter for DICOM files
+        # Filter for DICOM files (should all be .dcm from pneumonia/ directories)
         image_paths = [p for p in image_paths if p.suffix.lower() == ".dcm"]
 
         dataset = PneumoniaRsnaDataset(
@@ -428,8 +430,10 @@ def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
                 "Real Grid": wandb.Image(
                     real_np, caption=f"epoch_{epoch:03d}"
                 ),
-                "epoch": epoch,
-            }
+                "epoch": epoch
+
+            },
+            commit=False,
         )
     gen.train()
 

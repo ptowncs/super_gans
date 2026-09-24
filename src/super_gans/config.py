@@ -57,7 +57,25 @@ print(config)
 print(config["repos"]["dataset_handle"])
 
 # Data source selection: 'kaggle' or 'rsna'
-DATA_SOURCE = "kaggle"  # Default to Kaggle
+# In Kaggle environment, default to kaggle unless explicitly overridden to rsna
+# This prevents accidentally trying to load RSNA data in Kaggle without proper setup
+if IN_KAGGLE:
+    # In Kaggle, default to kaggle dataset unless user explicitly wants rsna
+    DATA_SOURCE = os.environ.get("DATA_SOURCE", "kaggle").lower()
+    if DATA_SOURCE not in ["kaggle", "rsna"]:
+        print(f"WARNING: Unknown DATA_SOURCE '{DATA_SOURCE}', defaulting to 'kaggle'")
+        DATA_SOURCE = "kaggle"
+elif IN_COLAB:
+    # In Colab, require explicit setting
+    DATA_SOURCE = os.environ.get("DATA_SOURCE", "kaggle").lower()
+    if DATA_SOURCE not in ["kaggle", "rsna"]:
+        print(f"WARNING: Unknown DATA_SOURCE '{DATA_SOURCE}', defaulting to 'kaggle'")
+        DATA_SOURCE = "kaggle"
+else:
+    # Local environment
+    DATA_SOURCE = os.environ.get("DATA_SOURCE", "kaggle").lower()
+
+print(f"Using data source: {DATA_SOURCE}")
 
 # Hyperparameters etc.
 device = "cuda" if torch.cuda.is_available() else "cpu"

@@ -56,9 +56,9 @@ def prepare_data():
     split_dir = "./data/split"
 
     if data_source == "kaggle":
-        prepare_kaggle_data("./data", split_dir)
+        prepare_kaggle_data(cfg.DATA_DIR, split_dir)
     elif data_source == "rsna":
-        prepare_rsna_data("./data", split_dir)
+        prepare_rsna_data(cfg.DATA_DIR, split_dir)
     else:
         raise ValueError(f"Unknown data source: {data_source}. Use 'kaggle' or 'rsna'")
 
@@ -81,6 +81,9 @@ def load_data(split="train"):
             image_paths = [p for p in Path(split_dir).glob("train/*") if p.is_file()]
         elif split == "val" or split == "validation":
             image_paths = [p for p in Path(split_dir).glob("val/*") if p.is_file()]
+            if len(image_paths) == 0:
+                raise ValueError(f"No Kaggle images found in {split_dir}/val/. "
+                               f"Please ensure data preparation has been run by calling prepare_data() first.")
         elif split == "test":
             # For simplicity, use validation set as test
             image_paths = [p for p in Path(split_dir).glob("val/*") if p.is_file()]
@@ -92,6 +95,9 @@ def load_data(split="train"):
         valid_extensions = [".jpg", ".jpeg", ".png", ".tif", ".tiff"]
         image_paths = [p for p in image_paths if p.suffix.lower() in valid_extensions]
 
+        if len(image_paths) == 0:
+            raise ValueError(f"No Kaggle images found in {split_dir}/train/. "
+                           f"Please ensure data preparation has been run by calling prepare_data() first.")
         dataset = PneumoniaKaggleDataset(
             image_paths=image_paths,
             transform=transforms_pipeline,
@@ -103,6 +109,10 @@ def load_data(split="train"):
             image_paths = [p for p in Path(split_dir).glob("train/pneumonia/*") if p.is_file()]
         elif split == "val" or split == "validation":
             image_paths = [p for p in Path(split_dir).glob("val/pneumonia/*") if p.is_file()]
+            if len(image_paths) == 0:
+                raise ValueError(f"No RSNA images found in {split_dir}/val/pneumonia/. "
+                               f"Please ensure RSNA data is properly prepared by calling prepare_data() first. "
+                               f"If you intended to use Kaggle dataset, check that DATA_SOURCE is not set to 'rsna'.")
         elif split == "test":
             # For simplicity, use validation set as test
             image_paths = [p for p in Path(split_dir).glob("val/pneumonia/*") if p.is_file()]
@@ -113,6 +123,10 @@ def load_data(split="train"):
         # Filter for DICOM files (should all be .dcm from pneumonia/ directories)
         image_paths = [p for p in image_paths if p.suffix.lower() == ".dcm"]
 
+        if len(image_paths) == 0:
+            raise ValueError(f"No RSNA images found in {split_dir}/train/pneumonia/. "
+                           f"Please ensure RSNA data is properly prepared by calling prepare_data() first. "
+                           f"If you intended to use Kaggle dataset, check that DATA_SOURCE is not set to 'rsna'.")
         dataset = PneumoniaRsnaDataset(
             image_paths=image_paths,
             transform=transforms_pipeline,

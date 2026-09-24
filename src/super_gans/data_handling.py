@@ -177,25 +177,53 @@ def download_rsna_labels(label_dir="./data/rsna_labels"):
 def download_rsna_dataset_to_dir(target_dir="./data/rsna"):
     """
     Download RSNA pneumonia dataset if it doesn't exist locally
-    Note: RSNA dataset is large and requires Kaggle API, so we check for existing data
+    Uses kagglehub to automatically download the dataset
     """
     target_path = Path(target_dir)
 
     # Check if RSNA data already exists
-    if target_path.exists() and any(target_path.iterdir()):
+    stage_2_train_path = target_path / "stage_2_train_images"
+    if stage_2_train_path.exists() and any(stage_2_train_path.iterdir()):
         print(f"RSNA dataset exists at {target_path}")
         return target_path
 
-    print("RSNA dataset not found locally.")
-    print("Please download the RSNA Pneumonia Detection Challenge dataset from Kaggle:")
-    print("https://www.kaggle.com/commitai/rsna-pneumonia-detection-challenge")
-    print(f"Extract it to: {target_path.absolute()}")
-    print("The dataset should contain stage_2_train_images/ folder with DICOM files.")
+    print("Downloading RSNA Pneumonia Detection Challenge dataset...")
+    # Download the dataset using kagglehub
+    dataset_path = kagglehub.dataset_download("rsna-pneumonia-detection-challenge")
+    dataset_path = Path(dataset_path)
 
-    # Create the directory structure
+    # The dataset should contain stage_2_train_images, stage_1_train_images, test_images, etc.
+    # Copy the stage_2_train_images (main training set) to our target location
     target_path.mkdir(parents=True, exist_ok=True)
 
-    # Return the path even if empty - the calling function should handle missing data
+    # Copy stage_2_train_images if it exists
+    downloaded_stage_2 = dataset_path / "stage_2_train_images"
+    if downloaded_stage_2.exists():
+        if stage_2_train_path.exists():
+            shutil.rmtree(stage_2_train_path)
+        shutil.copytree(downloaded_stage_2, stage_2_train_path)
+        print(f"Copied stage_2_train_images to {stage_2_train_path}")
+    else:
+        # If stage_2_train_images doesn't exist at root, search for it
+        found_stage_2 = list(dataset_path.rglob("stage_2_train_images"))
+        if found_stage_2:
+            downloaded_stage_2 = found_stage_2[0]
+            if stage_2_train_path.exists():
+                shutil.rmtree(stage_2_train_path)
+            shutil.copytree(downloaded_stage_2, stage_2_train_path)
+            print(f"Copied stage_2_train_images from {downloaded_stage_2} to {stage_2_train_path}")
+        else:
+            # Fallback: copy everything (this is a last resort)
+            print(f"Warning: Expected folder structure not found. Copying all files.")
+            for item in dataset_path.iterdir():
+                if item.is_dir():
+                    dest_dir = target_path / item.name
+                    if dest_dir.exists():
+                        shutil.rmtree(dest_dir)
+                    shutil.copytree(item, dest_dir)
+                print(f"Copied all dataset contents to {target_path}")
+
+    print(f"Successfully downloaded and prepared RSNA dataset at {target_path}")
     return target_path
 
 
@@ -266,25 +294,32 @@ def get_rsna_image_paths_and_labels(data_dir="./data/rsna", label_dir="./data/rs
 
     print(f"Loaded labels for {len(patient_to_label)} unique patients from RSNA labels")
 
-    # Find all DICOM files and extract patientId from path
+    # Find all DICOM files and extract patientId from DICOM metadata
     all_dicom_paths = list(data_path.rglob("*.dcm"))
 
     image_paths = []
     labels = []
 
     for dicom_path in all_dicom_paths:
-        # Extract patientId from the path
-        # Path format: .../rsna/1.2.276.0.7230010.3.1.2.8323329.10000.1517874346.154859/...
-        # The patientId is the first directory under the rsna root
-        relative_path = dicom_path.relative_to(data_path)
-        patient_id = str(relative_path.parts[0])  # First component after data_path
+        try:
+            # Read DICOM to get PatientID from metadata
+            ds = pydicom.dcmread(str(dicom_path), stop_before_pixels=True)
+            patient_id = getattr(ds, 'PatientID', None)
+            
+            # Skip if no PatientID found
+            if patient_id is None:
+                continue
 
-        # Look up label for this patientId
-        if patient_id in patient_to_label:
-            image_paths.append(dicom_path)
-            labels.append(patient_to_label[patient_id])
-        # Note: If patientId not found in labels, we skip the image
-        # This ensures we only use images with known labels
+            # Look up label for this patientId
+            if patient_id in patient_to_label:
+                image_paths.append(dicom_path)
+                labels.append(patient_to_label[patient_id])
+            # Note: If patientId not found in labels, we skip the image
+            # This ensures we only use images with known labels
+        except Exception as e:
+            # Skip unreadable DICOM files
+            print(f"Warning: Could not read DICOM file {dicom_path}: {e}")
+            continue
 
     print(f"Found {len(image_paths)} DICOM images with known labels out of {len(all_dicom_paths)} total DICOM files")
 
@@ -368,12 +403,17 @@ def save_data_split(train_paths, val_paths, output_file):
 
 
 def load_data_split(input_file):
-    input_file = Path(input_file)
+    # If input_file is just a filename, look for it in the module directory
+    input_path = Path(input_file)
+    if not input_path.is_absolute() and not input_path.parent.parts:
+        # Looks like just a filename, look in module directory
+        module_dir = Path(__file__).resolve().parent
+        input_path = module_dir / input_file
 
-    if not input_file.exists():
-        raise FileNotFoundError(f"Split info file not found: {input_file}")
+    if not input_path.exists():
+        raise FileNotFoundError(f"Split info file not found: {input_path}")
 
-    with open(input_file, "r") as f:
+    with open(input_path, "r") as f:
         split_data = json.load(f)
 
     train_paths = [Path(p) for p in split_data["train"]]
@@ -383,12 +423,18 @@ def load_data_split(input_file):
 
 
 def create_kaggle_split_json(data_dir="./data", split_dir="./data/split"):
+    # Get the directory where this module is located for JSON persistence
+    module_dir = Path(__file__).resolve().parent
+    module_dir.mkdir(parents=True, exist_ok=True)
+
+    # For data processing, use the passed-in directories
     data_path = Path(data_dir)
     split_path = Path(split_dir)
     split_path.mkdir(parents=True, exist_ok=True)
     data_path.mkdir(parents=True, exist_ok=True)
 
-    split_file = data_path / "kaggle_data_split.json"
+    # Save/load JSON from module directory
+    split_file = module_dir / "kaggle_data_split.json"
 
     if split_file.exists():
         return load_data_split(split_file)
@@ -404,44 +450,59 @@ def create_rsna_split_json(data_dir="./data/rsna", split_dir="./data/split", lab
     """
     Create train/validation split for RSNA dataset using image paths and labels
     """
+    # Get the directory where this module is located for JSON persistence
+    module_dir = Path(__file__).resolve().parent
+    module_dir.mkdir(parents=True, exist_ok=True)
+
+    # For data processing, use the passed-in directories
     data_path = Path(data_dir)
     split_path = Path(split_dir)
     split_path.mkdir(parents=True, exist_ok=True)
     data_path.mkdir(parents=True, exist_ok=True)
 
-    split_file = data_path / "rsna_data_split.json"
+    # Save/load JSON from module directory
+    split_file = module_dir / "rsna_data_split.json"
 
     if split_file.exists():
         # Load existing split and also load labels for compatibility
-        train_paths, val_paths = load_data_split(split_file)
-        # For backward compatibility, we need to infer labels from directory structure
-        # or load them from the original source. For now, we'll extract from split directory
-        train_labels = []
-        val_labels = []
+        with open(split_file, "r") as f:
+            split_data = json.load(f)
 
-        # Try to infer labels from existing split directory structure
-        split_train_dir = split_path / "train"
-        split_val_dir = split_path / "val"
+        train_paths = [Path(p) for p in split_data["train"]]
+        val_paths = [Path(p) for p in split_data["validation"]]
+        train_labels = split_data.get("train_labels", [])
+        val_labels = split_data.get("validation_labels", [])
 
-        if split_train_dir.exists():
-            # Count files in pneumonia vs normal subdirectories
-            pneumonia_train = list((split_train_dir / "pneumonia").glob("*"))
-            normal_train = list((split_train_dir / "normal").glob("*"))
-            train_labels = [1] * len(pneumonia_train) + [0] * len(normal_train)
-            # Ensure we have the right number of labels
-            if len(train_labels) != len(train_paths):
-                # Fallback: assume all are pneumonia (for backward compatibility)
-                train_labels = [1] * len(train_paths)
+        # If we don't have labels in the split file, try to infer from directory structure
+        if not train_labels or not val_labels:
+            # For backward compatibility, we need to infer labels from directory structure
+            # or load them from the original source. For now, we'll extract from split directory
+            train_labels = []
+            val_labels = []
 
-        if split_val_dir.exists():
-            # Count files in pneumonia vs normal subdirectories
-            pneumonia_val = list((split_val_dir / "pneumonia").glob("*"))
-            normal_val = list((split_val_dir / "normal").glob("*"))
-            val_labels = [1] * len(pneumonia_val) + [0] * len(normal_val)
-            # Ensure we have the right number of labels
-            if len(val_labels) != len(val_paths):
-                # Fallback: assume all are pneumonia (for backward compatibility)
-                val_labels = [1] * len(val_paths)
+            # Try to infer labels from existing split directory structure
+            split_train_dir = split_path / "train"
+            split_val_dir = split_path / "val"
+
+            if split_train_dir.exists():
+                # Count files in pneumonia vs normal subdirectories
+                pneumonia_train = list((split_train_dir / "pneumonia").glob("*"))
+                normal_train = list((split_train_dir / "normal").glob("*"))
+                train_labels = [1] * len(pneumonia_train) + [0] * len(normal_train)
+                # Ensure we have the right number of labels
+                if len(train_labels) != len(train_paths):
+                    # Fallback: assume all are pneumonia (for backward compatibility)
+                    train_labels = [1] * len(train_paths)
+
+            if split_val_dir.exists():
+                # Count files in pneumonia vs normal subdirectories
+                pneumonia_val = list((split_val_dir / "pneumonia").glob("*"))
+                normal_val = list((split_val_dir / "normal").glob("*"))
+                val_labels = [1] * len(pneumonia_val) + [0] * len(normal_val)
+                # Ensure we have the right number of labels
+                if len(val_labels) != len(val_paths):
+                    # Fallback: assume all are pneumonia (for backward compatibility)
+                    val_labels = [1] * len(val_paths)
 
         return train_paths, val_paths, train_labels, val_labels
 
@@ -499,7 +560,9 @@ def apply_kaggle_split(data_dir="./data", split_dir="./data/split"):
     split_dir = Path(split_dir)
     data_path = Path(data_dir)
 
-    split_file = data_path / "kaggle_data_split.json"
+    # Get the directory where this module is located for JSON persistence
+    module_dir = Path(__file__).resolve().parent
+    split_file = module_dir / "kaggle_data_split.json"
     if not split_file.exists():
         raise FileNotFoundError(f"Split file not found: {split_file}. Run create_kaggle_split_json first.")
 
@@ -547,6 +610,9 @@ def apply_rsna_split(data_dir="./data/rsna", split_dir="./data/split", label_dir
     """
     split_dir = Path(split_dir)
     data_path = Path(data_dir)
+
+    # Get the directory where this module is located for JSON persistence
+    module_dir = Path(__file__).resolve().parent
 
     # Get the split with labels
     result = create_rsna_split_json(data_dir, split_dir, label_dir)
@@ -606,20 +672,26 @@ def prepare_kaggle_data(data_dir="./data", split_dir="./data/split"):
     apply_kaggle_split(data_dir, split_dir)
 
 
-def prepare_rsna_data(data_dir="./data", split_dir="./data/split", label_dir="./data/rsna_labels"):
+def prepare_rsna_data(data_dir="./data", split_dir="./data/split", label_dir=None):
     """
     Prepare RSNA data: download images, download labels, create split, apply split
     Downloads label files if they don't exist locally.
+    If label_dir is None, labels will be placed in data_dir/rsna_labels
     """
+    # If label_dir not specified, place labels alongside images in data_dir
+    if label_dir is None:
+        label_dir = str(Path(data_dir) / "rsna_labels")
+
     # Download/verify RSNA images exist
-    download_rsna_dataset_to_dir(Path(data_dir) / "rsna")
+    rsna_data_path = Path(data_dir) / "rsna"
+    download_rsna_dataset_to_dir(rsna_data_path)
 
     # Download/verify label files exist
     download_rsna_labels(label_dir)
 
     # Create and apply the split
-    create_rsna_split_json(data_dir, split_dir, label_dir)
-    apply_rsna_split(data_dir, split_dir, label_dir)
+    create_rsna_split_json(rsna_data_path, split_dir, label_dir)
+    apply_rsna_split(rsna_data_path, split_dir, label_dir)
 
 
 def clean_data_splits(data_dir="./data", split_dir="./data/split"):

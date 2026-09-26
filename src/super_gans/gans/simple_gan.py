@@ -22,7 +22,6 @@ from super_gans import utils
 from super_gans import metrics
 
 # Enable cuDNN auto‑tuner to pick the fastest convolution algorithms for fixed‑size inputs
-import torch
 torch.backends.cudnn.benchmark = True
 # Allow TensorFloat‑32 (TF32) on matrix multiplications and cuDNN operations (Ampere+ GPUs)
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -76,17 +75,18 @@ def training_loop(
     criterion = nn.BCELoss()
 
     loader_kwargs = {
-    'dataset': dataset,
-    'batch_size': cfg.batch_size,
-    'shuffle': True,
-    'num_workers': cfg.num_workers,
-    'pin_memory': cfg.num_workers > 0,
-}
-if cfg.num_workers > 0:
-    loader_kwargs['prefetch_factor'] = 4
-    loader_kwargs['persistent_workers'] = True
+        "dataset": dataset,
+        "batch_size": cfg.batch_size,
+        "shuffle": True,
+        "num_workers": cfg.num_workers,
+        "pin_memory": cfg.num_workers > 0,
+    }
 
-loader = DataLoader(**loader_kwargs)
+    if cfg.num_workers > 0:
+        loader_kwargs["prefetch_factor"] = 4
+        loader_kwargs["persistent_workers"] = True
+
+    loader = DataLoader(**loader_kwargs)
     # feature=64 uses a lower layer of Inception; it's faster for monitoring
     fid_metric = FrechetInceptionDistance(feature=cfg.fid_dims, normalize=True).to(
         cfg.device
@@ -102,8 +102,7 @@ loader = DataLoader(**loader_kwargs)
     for epoch in range(start_epoch, cfg.num_epochs + 1):
         process = psutil.Process(os.getpid())
         print(
-            f"Epoch: {epoch} | RAM GB: {process.memory_info().rss / 1024**3:.2f} \
-              | GPU GB: {torch.cuda.memory_allocated() / 1024**3:.2f}"
+            f"Epoch: {epoch} | RAM GB: {process.memory_info().rss / 1024**3:.2f} | GPU GB: {torch.cuda.memory_allocated() / 1024**3:.2f}"
         )
 
         for batch_idx, (real_orig, _) in enumerate(loader):
@@ -147,7 +146,6 @@ loader = DataLoader(**loader_kwargs)
                     f"Epoch [{epoch}/{cfg.num_epochs}] Loss D: {lossD.item():.4f}, Loss G: {lossG.item():.4f}"
                 )
                 utils.log_tensorboard_visuals(wandb, gen, real, fixed_noise, epoch)
-            
 
         # --- LOG LOSSES EVERY EPOCH ---
         wandb.log(
@@ -159,9 +157,12 @@ loader = DataLoader(**loader_kwargs)
             commit=False,
         )
 
-        
         # --- FID CALCULATION AT END OF EPOCH ---
-        if (epoch == start_epoch) or (epoch % cfg.fid_interval == 0) or (epoch == cfg.num_epochs):
+        if (
+            (epoch == start_epoch)
+            or (epoch % cfg.fid_interval == 0)
+            or (epoch == cfg.num_epochs)
+        ):
             utils.save_model(
                 gen, disc, opt_gen, opt_disc, epoch, filename="latest_gan.pth"
             )
@@ -169,10 +170,18 @@ loader = DataLoader(**loader_kwargs)
             fid_metric.reset()
 
             wandb.log({"Metrics/FID": current_fid, "epoch": epoch}, commit=True)
-            
+
             # Log losses and FID to training CSV
-            utils.log_training_row(train_csv_path, epoch, loss_g=lossG.item(), loss_d=lossD.item(), fid_train=current_fid)
-            print(f"Epoch [{epoch}/{cfg.num_epochs}] CSV: G_loss={lossG.item():.6f}, D_loss={lossD.item():.6f}, FID_train={current_fid:.4f}")
+            utils.log_training_row(
+                train_csv_path,
+                epoch,
+                loss_g=lossG.item(),
+                loss_d=lossD.item(),
+                fid_train=current_fid,
+            )
+            print(
+                f"Epoch [{epoch}/{cfg.num_epochs}] CSV: G_loss={lossG.item():.6f}, D_loss={lossD.item():.6f}, FID_train={current_fid:.4f}"
+            )
 
             # Checkpoint: Save as 'best' if quality improved
             if current_fid < best_fid:
@@ -181,16 +190,23 @@ loader = DataLoader(**loader_kwargs)
                 utils.save_model(
                     gen, disc, opt_gen, opt_disc, epoch, filename="best_gan.pth"
                 )
-            print(f"Epoch [{epoch}/{cfg.num_epochs}]: Best_fid_score={best_fid:.4f}, Best_fid_epoch={best_fid_epoch}")    
-            
+            print(
+                f"Epoch [{epoch}/{cfg.num_epochs}]: Best_fid_score={best_fid:.4f}, Best_fid_epoch={best_fid_epoch}"
+            )
+
         else:
             wandb.log({"epoch": epoch}, commit=True)
             # Log losses to training CSV (no FID)
-            utils.log_training_row(train_csv_path, epoch,
-                                  loss_g=lossG.item(),
-                                  loss_d=lossD.item(),
-                                  fid_train=None)
-            print(f"Epoch [{epoch}/{cfg.num_epochs}] CSV: G_loss={lossG.item():.6f}, D_loss={lossD.item():.6f}, FID_train=N/A")
+            utils.log_training_row(
+                train_csv_path,
+                epoch,
+                loss_g=lossG.item(),
+                loss_d=lossD.item(),
+                fid_train=None,
+            )
+            print(
+                f"Epoch [{epoch}/{cfg.num_epochs}] CSV: G_loss={lossG.item():.6f}, D_loss={lossD.item():.6f}, FID_train=N/A"
+            )
 
         # End of Epoch cleanup
         # writer.flush()
@@ -257,20 +273,39 @@ def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
     else:
         print(f"Resuming training from epoch {start_epoch}")
 
-    opt_disc, opt_gen, best_fid, best_fid_epoch = training_loop(disc, gen, opt_disc, opt_gen, train_dataset, wandb,
-                                                                start_epoch, best_fid, best_fid_epoch)
-    utils.save_model(gen, disc, opt_gen, opt_disc, f"epoch:{cfg.num_epochs}", "simple_gan_checkpoint.pth")
+    opt_disc, opt_gen, best_fid, best_fid_epoch = training_loop(
+        disc,
+        gen,
+        opt_disc,
+        opt_gen,
+        train_dataset,
+        wandb,
+        start_epoch,
+        best_fid,
+        best_fid_epoch,
+    )
+    utils.save_model(
+        gen,
+        disc,
+        opt_gen,
+        opt_disc,
+        f"epoch:{cfg.num_epochs}",
+        "simple_gan_checkpoint.pth",
+    )
 
     real_images_dir = cfg.FID_REAL_DIR
     generated_images_dir = cfg.FID_FAKE_DIR
     validation_dataset = utils.build_fid_evaluation_dataset()
     real_count = len(validation_dataset)
     # Log dataset sizes to WandB
-    wandb.log({
-        "dataset/train_size": len(utils.load_data(split="train")),
-        "dataset/validation_size": real_count,
-        "dataset/epoch": 0  # Log at epoch 0 for final evaluation
-    }, commit=True)
+    wandb.log(
+        {
+            "dataset/train_size": len(utils.load_data(split="train")),
+            "dataset/validation_size": real_count,
+            "dataset/epoch": 0,  # Log at epoch 0 for final evaluation
+        },
+        commit=True,
+    )
     utils.save_real_images_metrics(validation_dataset, real_images_dir)
     # Need to reload just the generator for final evaluation - always load best model
     gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"
@@ -288,13 +323,16 @@ def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
     wandb.run.summary["final_kid_mean"] = kid_mean
     wandb.run.summary["final_kid_std"] = kid_std
     # Log validation metrics to CSV
-    utils.log_validation_row(val_csv_path,
-                            best_fid_epoch,
-                            best_fid,  # This is the best FID observed during training
-                            fid_value,  # This is the final FID from evaluation of best model
-                            kid_mean,
-                            kid_std)
+    utils.log_validation_row(
+        val_csv_path,
+        best_fid_epoch,
+        best_fid,  # This is the best FID observed during training
+        fid_value,  # This is the final FID from evaluation of best model
+        kid_mean,
+        kid_std,
+    )
     wandb.finish()
+
 
 if __name__ == "__main__":
     main()

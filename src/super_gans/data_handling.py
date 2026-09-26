@@ -286,7 +286,7 @@ def get_rsna_image_paths_and_labels(data_dir=str(Path(cfg.DATA_DIR) / "rsna"), l
         raise FileNotFoundError(f"RSNA label file not found at {stage2_label_file}. "
                               "Please ensure label files are downloaded or specify correct label_dir.")
 
-    # Load labels CSV using built-in csv module
+    # Load labels CSV using built-in csv module and normalize patient IDs for matching
     patient_to_label = {}
     try:
         with open(stage2_label_file, 'r') as f:
@@ -294,7 +294,9 @@ def get_rsna_image_paths_and_labels(data_dir=str(Path(cfg.DATA_DIR) / "rsna"), l
             for row in reader:
                 patient_id = row['patientId']
                 target = int(row['Target'])
-                patient_to_label[patient_id] = target  # 0=normal, 1=pneumonia
+                # Normalize patient ID for consistent matching (strip whitespace)
+                normalized_patient_id = str(patient_id).strip()
+                patient_to_label[normalized_patient_id] = target  # 0=normal, 1=pneumonia
     except Exception as e:
         raise RuntimeError(f"Error reading RSNA label CSV file {stage2_label_file}: {e}")
 
@@ -316,11 +318,14 @@ def get_rsna_image_paths_and_labels(data_dir=str(Path(cfg.DATA_DIR) / "rsna"), l
             if patient_id is None:
                 continue
 
-            # Look up label for this patientId
-            if patient_id in patient_to_label:
+            # Normalize patient ID for comparison (strip whitespace)
+            normalized_patient_id = str(patient_id).strip() if patient_id is not None else None
+
+            # Look up label for this patientId using normalized ID
+            if normalized_patient_id is not None and normalized_patient_id in patient_to_label:
                 image_paths.append(dicom_path)
-                labels.append(patient_to_label[patient_id])
-            # Note: If patientId not found in labels, we skip the image
+                labels.append(patient_to_label[normalized_patient_id])
+            # Note: If no matching label found, we skip the image
             # This ensures we only use images with known labels
         except Exception as e:
             # Skip unreadable DICOM files
@@ -386,12 +391,38 @@ def get_rsna_image_paths_and_labels(data_dir=str(Path(cfg.DATA_DIR) / "rsna"), l
     return image_paths, labels
 
 
-def save_data_split(train_paths, val_paths, output_file):
+def save_data_split(train_paths, val_paths, output_file, base_dir=None):
     output_file = Path(output_file)
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
-    train_paths_str = [str(p) for p in train_paths]
-    val_paths_str = [str(p) for p in val_paths]
+    if base_dir is not None:
+        base_path = Path(base_dir)
+        # Convert absolute paths to relative paths based on base_dir
+        train_paths_str = []
+        val_paths_str = []
+        for p in train_paths:
+            try:
+                # If path is absolute and within base_dir, make it relative
+                if p.is_absolute() and p.resolve().is_relative_to(base_path.resolve()):
+                    train_paths_str.append(str(p.relative_to(base_path)))
+                else:
+                    train_paths_str.append(str(p))
+            except ValueError:
+                # If relative_to fails, keep the original path
+                train_paths_str.append(str(p))
+        for p in val_paths:
+            try:
+                # If path is absolute and within base_dir, make it relative
+                if p.is_absolute() and p.resolve().is_relative_to(base_path.resolve()):
+                    val_paths_str.append(str(p.relative_to(base_path)))
+                else:
+                    val_paths_str.append(str(p))
+            except ValueError:
+                # If relative_to fails, keep the original path
+                val_paths_str.append(str(p))
+    else:
+        train_paths_str = [str(p) for p in train_paths]
+        val_paths_str = [str(p) for p in val_paths]
 
     split_data = {
         "train": train_paths_str,
@@ -408,7 +439,7 @@ def save_data_split(train_paths, val_paths, output_file):
     return output_file
 
 
-def load_data_split(input_file):
+def load_data_split(input_file, base_dir=None):
     # If input_file is just a filename, look for it in the module directory
     input_path = Path(input_file)
     if not input_path.is_absolute() and not input_path.parent.parts:
@@ -422,8 +453,26 @@ def load_data_split(input_file):
     with open(input_path, "r") as f:
         split_data = json.load(f)
 
-    train_paths = [Path(p) for p in split_data["train"]]
-    val_paths = [Path(p) for p in split_data["validation"]]
+    if base_dir is not None:
+        base_path = Path(base_dir)
+        # Convert relative paths to absolute paths based on base_dir
+        train_paths = []
+        val_paths = []
+        for p in split_data["train"]:
+            p_obj = Path(p)
+            if not p_obj.is_absolute():
+                train_paths.append(base_path / p)
+            else:
+                train_paths.append(p_obj)
+        for p in split_data["validation"]:
+            p_obj = Path(p)
+            if not p_obj.is_absolute():
+                val_paths.append(base_path / p)
+            else:
+                val_paths.append(p_obj)
+    else:
+        train_paths = [Path(p) for p in split_data["train"]]
+        val_paths = [Path(p) for p in split_data["validation"]]
 
     return train_paths, val_paths
 
@@ -446,11 +495,11 @@ def create_ptmooney_split_json(data_dir=str(Path(cfg.DATA_DIR) / "ptmooney"), sp
     split_file = module_dir / "ptmooney_data_split.json"
 
     if split_file.exists():
-        return load_data_split(split_file)
+        return load_data_split(split_file, base_dir=data_path)
 
     all_paths = get_ptmooney_image_paths(data_path)
     train_paths, val_paths = create_simple_train_val_split(all_paths, val_fraction=0.2)
-    save_data_split(train_paths, val_paths, split_file)
+    save_data_split(train_paths, val_paths, split_file, base_dir=data_path)
 
     return train_paths, val_paths
 
@@ -478,11 +527,9 @@ def create_rsna_split_json(data_dir=str(Path(cfg.DATA_DIR) / "rsna"), split_dir=
 
     if split_file.exists():
         # Load existing split and also load labels for compatibility
+        train_paths, val_paths = load_data_split(split_file, base_dir=data_path)
         with open(split_file, "r") as f:
             split_data = json.load(f)
-
-        train_paths = [Path(p) for p in split_data["train"]]
-        val_paths = [Path(p) for p in split_data["validation"]]
         train_labels = split_data.get("train_labels", [])
         val_labels = split_data.get("validation_labels", [])
 
@@ -522,6 +569,10 @@ def create_rsna_split_json(data_dir=str(Path(cfg.DATA_DIR) / "rsna"), split_dir=
     # Get image paths and labels
     all_paths, all_labels = get_rsna_image_paths_and_labels(data_path, label_dir)
 
+    # Validate that we found valid image-label pairs
+    if len(all_paths) == 0:
+        raise ValueError("No valid RSNA image-label pairs found. Please check that DICOM files contain valid PatientID values that match the label CSV.")
+
     # Create combined list of (path, label) tuples for stratified splitting
     path_label_pairs = list(zip(all_paths, all_labels))
 
@@ -559,15 +610,26 @@ def create_rsna_split_json(data_dir=str(Path(cfg.DATA_DIR) / "rsna"), split_dir=
         "val_pneumonia_count": sum(1 for l in val_labels if l == 1),
     }
 
-    # Save the split file directly to include labels
-    split_file.parent.mkdir(parents=True, exist_ok=True)
+    # Save the split file using save_data_split for relative paths
+    save_data_split(train_paths, val_paths, split_file, base_dir=data_path)
+
+    # Add labels to the split file for verification/debugging
+    with open(split_file, "r") as f:
+        split_data_with_labels = json.load(f)
+    split_data_with_labels["train_labels"] = train_labels
+    split_data_with_labels["validation_labels"] = val_labels
+    split_data_with_labels["description"] = "RSNA pneumonia dataset train/validation split with labels"
+    split_data_with_labels["train_normal_count"] = sum(1 for l in train_labels if l == 0)
+    split_data_with_labels["train_pneumonia_count"] = sum(1 for l in train_labels if l == 1)
+    split_data_with_labels["val_normal_count"] = sum(1 for l in val_labels if l == 0)
+    split_data_with_labels["val_pneumonia_count"] = sum(1 for l in val_labels if l == 1)
     with open(split_file, "w") as f:
-        json.dump(split_data, f, indent=2)
+        json.dump(split_data_with_labels, f, indent=2)
 
     # Also save a human-readable summary
     summary_file = data_path / "rsna_split_summary.json"
     with open(summary_file, "w") as f:
-        json.dump(split_data, f, indent=2)
+        json.dump(split_data_with_labels, f, indent=2)
 
     return train_paths, val_paths, train_labels, val_labels
 
@@ -585,7 +647,7 @@ def apply_ptmooney_split(data_dir=str(Path(cfg.DATA_DIR) / "ptmooney"), split_di
     if not split_file.exists():
         raise FileNotFoundError(f"Split file not found: {split_file}. Run create_ptmooney_split_json first.")
 
-    train_paths, val_paths = load_data_split(split_file)
+    train_paths, val_paths = load_data_split(split_file, base_dir=data_path)
 
     split_train_dir = split_dir / "train"
     split_val_dir = split_dir / "val"
@@ -714,8 +776,8 @@ def prepare_rsna_data(data_dir=str(Path(cfg.DATA_DIR) / "rsna"), split_dir=str(P
     rsna_data_path = Path(data_dir)
     downloaded_data_path, downloaded_label_path = download_rsna_data_and_labels(rsna_data_path, label_dir)
 
-    # The images are actually in the stage_2_train_images subdirectory
-    image_data_path = downloaded_data_path / "stage_2_train_images"
+    # The images are already in the correct location after download_rsna_data_and_labels
+    image_data_path = downloaded_data_path
 
     # Create and apply the split
     create_rsna_split_json(image_data_path, split_dir, downloaded_label_path)

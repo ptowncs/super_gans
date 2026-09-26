@@ -22,7 +22,7 @@ import super_gans.config as cfg
 from super_gans.data_handling import (
     PneumoniaKaggleDataset,
     PneumoniaRsnaDataset,
-    prepare_kaggle_data,
+    prepare_ptmooney_data,
     prepare_rsna_data,
 )
 
@@ -53,36 +53,37 @@ def prepare_data():
     This should be called once before loading the dataset for training/evaluation.
     """
     data_source = cfg.DATA_SOURCE.lower()
-    split_dir = "./data/split"
+    split_dir = str(Path(cfg.DATA_DIR) / "split")
 
-    if data_source == "kaggle":
-        prepare_kaggle_data(cfg.DATA_DIR, split_dir)
+    if data_source == "ptmooney":
+        # 'ptmooney' refers to the paultimothymooney/chest-xray-pneumonia dataset
+        prepare_ptmooney_data(split_dir=split_dir)
     elif data_source == "rsna":
-        prepare_rsna_data(cfg.DATA_DIR, split_dir)
+        prepare_rsna_data(split_dir=split_dir)
     else:
-        raise ValueError(f"Unknown data source: {data_source}. Use 'kaggle' or 'rsna'")
+        raise ValueError(f"Unknown data source: {data_source}. Use 'ptmooney' or 'rsna'")
 
 
 def load_data(split="train"):
     """
     Load pneumonia dataset for the specified split.
-    Uses configurable data source (Kaggle or RSNA) via cfg.DATA_SOURCE.
-    For Kaggle: loads only pneumonia images (from PNEUMONIA folders).
+    Uses configurable data source (PTMOONEY or RSNA) via cfg.DATA_SOURCE.
+    For PTMOONEY: loads only pneumonia images (from PNEUMONIA folders).
     For RSNA: loads only pneumonia images (from pneumonia/ subdirectories after splitting).
     Assumes data has been prepared via prepare_data().
     """
     data_source = cfg.DATA_SOURCE.lower()
-    split_dir = Path("./data/split").resolve()  # Make absolute to avoid cwd issues
+    split_dir = Path(cfg.DATA_DIR) / "split"
     transforms_pipeline = get_transforms_pipeline()
 
-    if data_source == "kaggle":
+    if data_source == "ptmooney":
         # Load from split directories (non-recursive - flattened structure)
         if split == "train":
             image_paths = [p for p in Path(split_dir).glob("train/*") if p.is_file()]
         elif split == "val" or split == "validation":
             image_paths = [p for p in Path(split_dir).glob("val/*") if p.is_file()]
             if len(image_paths) == 0:
-                raise ValueError(f"No Kaggle images found in {split_dir}/val/. "
+                raise ValueError(f"No PTMOONEY images found in {split_dir}/val/. "
                                f"Please ensure data preparation has been run by calling prepare_data() first.")
         elif split == "test":
             # For simplicity, use validation set as test
@@ -96,7 +97,7 @@ def load_data(split="train"):
         image_paths = [p for p in image_paths if p.suffix.lower() in valid_extensions]
 
         if len(image_paths) == 0:
-            raise ValueError(f"No Kaggle images found in {split_dir}/train/. "
+            raise ValueError(f"No PTMOONEY images found in {split_dir}/train/. "
                            f"Please ensure data preparation has been run by calling prepare_data() first.")
         dataset = PneumoniaKaggleDataset(
             image_paths=image_paths,

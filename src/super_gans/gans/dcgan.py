@@ -107,11 +107,18 @@ def training_loop(
 
     criterion = nn.BCEWithLogitsLoss()
 
-    loader = DataLoader(
-        dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=cfg.num_workers, pin_memory=cfg.num_workers > 0,
-        prefetch_factor=4,
-        persistent_workers=True,
-    )
+    loader_kwargs = {
+        'dataset': dataset,
+        'batch_size': cfg.batch_size,
+        'shuffle': True,
+        'num_workers': cfg.num_workers,
+        'pin_memory': cfg.num_workers > 0,
+    }
+    if cfg.num_workers > 0:
+        loader_kwargs['prefetch_factor'] = 4
+        loader_kwargs['persistent_workers'] = True
+
+    loader = DataLoader(**loader_kwargs)
     # feature=64 uses a lower layer of Inception; it's faster for monitoring
     fid_metric = FrechetInceptionDistance(feature=cfg.fid_dims, normalize=True).to(
         cfg.device
@@ -171,7 +178,6 @@ def training_loop(
                     f"Epoch [{epoch}/{cfg.num_epochs}] Loss D: {lossD.item():.4f}, Loss G: {lossG.item():.4f}"
                 )
                 utils.log_tensorboard_visuals(wandb, gen, real, fixed_noise, epoch)
-            
 
         # --- LOG LOSSES EVERY EPOCH ---
         # Staging loss data. commit=False ensures we wait to push until the end of the epoch.
@@ -184,7 +190,6 @@ def training_loop(
             commit=False,
         )
 
-        
         # --- FID CALCULATION AT END OF EPOCH ---
         if (epoch == start_epoch) or (epoch % cfg.fid_interval == 0) or (epoch == cfg.num_epochs):
             utils.save_model(

@@ -13,6 +13,8 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 import csv  # Added for CSV handling (using built-in csv module)
 
+import super_gans.config as cfg
+
 
 class PneumoniaKaggleDataset(Dataset):
     def __init__(self, image_paths, transform=None):
@@ -118,121 +120,125 @@ class PneumoniaRsnaDataset(Dataset):
         return Image.fromarray(img_arr).convert("L")
 
 
-def download_kaggle_dataset_to_dir(target_dir="./data/kaggle"):
+def download_ptmooney_dataset_to_dir(target_dir="./data/ptmooney"):
+    """
+    Download the Kaggle pneumoniadata (paultimothymooney/chest-xray-pneumonia).
+    This dataset contains chest X-ray images organized in train/val/test folders
+    with NORMAL and PNEUMONIA subdirectories.
+    """
     target_path = Path(target_dir)
     chest_xray_path = target_path / "chest_xray"
 
     if chest_xray_path.exists():
-        print(f"Kaggle dataset exists at {chest_xray_path}")
+        print(f"PTMOONEY dataset exists at {chest_xray_path}")
         return chest_xray_path
 
-    print("Downloading Kaggle pneumonia dataset...")
+    print("Downloading PTMOONEY Kaggle pneumonia dataset...")
     dataset_path = kagglehub.dataset_download("paultimothymooney/chest-xray-pneumonia")
     downloaded_chest_xray = Path(dataset_path) / "chest_xray"
 
     target_path.mkdir(parents=True, exist_ok=True)
     if downloaded_chest_xray.exists():
         shutil.copytree(downloaded_chest_xray, chest_xray_path)
-        print(f"Copied Kaggle dataset to {chest_xray_path}")
+        print(f"Copied PTMOONEY dataset to {chest_xray_path}")
     else:
         raise FileNotFoundError(f"Downloaded dataset not found at {downloaded_chest_xray}")
 
     return chest_xray_path
 
 
-def download_rsna_labels(label_dir="./data/rsna_labels"):
-    """Download RSNA label CSV files if they don't exist"""
+def download_rsna_data_and_labels(data_dir=str(Path(cfg.DATA_DIR) / "rsna"), label_dir=str(Path(cfg.DATA_DIR) / "rsna_labels")):
+    """
+    Download RSNA pneumonia dataset and labels using kagglehub competition download.
+    Simple unified approach that gets both images and labels in one call.
+    """
+    import kagglehub
+
+    # Set up expected paths
+    data_path = Path(data_dir)
     label_path = Path(label_dir)
-    label_path.mkdir(parents=True, exist_ok=True)
+    stage_2_train_path = data_path / "stage_2_train_images"
+    stage2_label_path = label_path / "stage_2_train_labels.csv"
 
-    # Stage 2 training labels (the main labels we need)
-    stage2_train_label_path = label_path / "stage_2_train_labels.csv"
-    if not stage2_train_label_path.exists():
-        print("Downloading RSNA stage_2_train_labels.csv...")
-        # Using a known reliable source for the labels
-        label_url = "https://raw.githubusercontent.com/pmcheng/rsna-pneumonia/master/data/stage_2_train_labels.csv"
-        try:
-            import urllib.request
-            urllib.request.urlretrieve(label_url, stage2_train_label_path)
-            print(f"Downloaded stage_2_train_labels.csv to {stage2_train_label_path}")
-        except Exception as e:
-            print(f"Warning: Could not download stage_2_train_labels.csv: {e}")
-            print("You may need to manually download label files from Kaggle RSNA Pneumonia Detection Challenge")
+    # Check if we already have what we need
+    if stage_2_train_path.exists() and any(stage_2_train_path.iterdir()) and stage2_label_path.exists():
+        print(f"RSNA dataset and labels already exist at {data_path} and {label_path}")
+        return data_path, label_path
 
-    # Also check for stage 1 labels (sometimes used)
-    stage1_train_label_path = label_path / "stage_1_train_labels.csv"
-    if not stage1_train_label_path.exists():
-        print("Downloading RSNA stage_1_train_labels.csv...")
-        label_url = "https://raw.githubusercontent.com/pmcheng/rsna-pneumonia/master/data/stage_1_train_labels.csv"
-        try:
-            import urllib.request
-            urllib.request.urlretrieve(label_url, stage1_train_label_path)
-            print(f"Downloaded stage_1_train_labels.csv to {stage1_train_label_path}")
-        except Exception as e:
-            print(f"Warning: Could not download stage_1_train_labels.csv: {e}")
+    print("Downloading RSNA Pneumonia Detection Challenge dataset and labels via kagglehub competition download...")
 
-    return label_path
+    try:
+        # Download the entire competition (images + labels)
+        competition_path = kagglehub.competition_download('rsna-pneumonia-detection-challenge')
+        competition_path = Path(competition_path)
+        print(f"Downloaded competition files to: {competition_path}")
 
+        # Organize the files to expected locations
+        # 1. Handle images: copy stage_2_train_images
+        downloaded_stage_2_images = competition_path / "stage_2_train_images"
+        if downloaded_stage_2_images.exists():
+            data_path.mkdir(parents=True, exist_ok=True)
 
-def download_rsna_dataset_to_dir(target_dir="./data/rsna"):
-    """
-    Download RSNA pneumonia dataset if it doesn't exist locally
-    Uses kagglehub to automatically download the dataset
-    """
-    target_path = Path(target_dir)
-
-    # Check if RSNA data already exists
-    stage_2_train_path = target_path / "stage_2_train_images"
-    if stage_2_train_path.exists() and any(stage_2_train_path.iterdir()):
-        print(f"RSNA dataset exists at {target_path}")
-        return target_path
-
-    print("Downloading RSNA Pneumonia Detection Challenge dataset...")
-    # Download the dataset using kagglehub
-    dataset_path = kagglehub.dataset_download("rsna-pneumonia-detection-challenge")
-    dataset_path = Path(dataset_path)
-
-    # The dataset should contain stage_2_train_images, stage_1_train_images, test_images, etc.
-    # Copy the stage_2_train_images (main training set) to our target location
-    target_path.mkdir(parents=True, exist_ok=True)
-
-    # Copy stage_2_train_images if it exists
-    downloaded_stage_2 = dataset_path / "stage_2_train_images"
-    if downloaded_stage_2.exists():
-        if stage_2_train_path.exists():
-            shutil.rmtree(stage_2_train_path)
-        shutil.copytree(downloaded_stage_2, stage_2_train_path)
-        print(f"Copied stage_2_train_images to {stage_2_train_path}")
-    else:
-        # If stage_2_train_images doesn't exist at root, search for it
-        found_stage_2 = list(dataset_path.rglob("stage_2_train_images"))
-        if found_stage_2:
-            downloaded_stage_2 = found_stage_2[0]
+            # Remove existing if present
             if stage_2_train_path.exists():
                 shutil.rmtree(stage_2_train_path)
-            shutil.copytree(downloaded_stage_2, stage_2_train_path)
-            print(f"Copied stage_2_train_images from {downloaded_stage_2} to {stage_2_train_path}")
+            shutil.copytree(downloaded_stage_2_images, stage_2_train_path)
+            print(f"Copied stage_2_train_images to {stage_2_train_path}")
         else:
-            # Fallback: copy everything (this is a last resort)
-            print(f"Warning: Expected folder structure not found. Copying all files.")
-            for item in dataset_path.iterdir():
-                if item.is_dir():
-                    dest_dir = target_path / item.name
-                    if dest_dir.exists():
-                        shutil.rmtree(dest_dir)
-                    shutil.copytree(item, dest_dir)
-                print(f"Copied all dataset contents to {target_path}")
+            # Search for it if not at root
+            found_stage_2 = list(competition_path.rglob("stage_2_train_images"))
+            if found_stage_2:
+                downloaded_stage_2_images = found_stage_2[0]
+                data_path.mkdir(parents=True, exist_ok=True)
+                if stage_2_train_path.exists():
+                    shutil.rmtree(stage_2_train_path)
+                shutil.copytree(downloaded_stage_2_images, stage_2_train_path)
+                print(f"Copied stage_2_train_images from {downloaded_stage_2_images} to {stage_2_train_path}")
+            else:
+                raise Exception("Could not find stage_2_train_images in downloaded competition")
 
-    print(f"Successfully downloaded and prepared RSNA dataset at {target_path}")
-    return target_path
+        # 2. Handle labels: copy stage_2_train_labels.csv
+        downloaded_stage_2_labels = competition_path / "stage_2_train_labels.csv"
+        if downloaded_stage_2_labels.exists():
+            label_path.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(downloaded_stage_2_labels, label_path / "stage_2_train_labels.csv")
+            print(f"Copied stage_2_train_labels.csv to {label_path}")
+        else:
+            # Search for it if not at root
+            found_labels = list(competition_path.rglob("stage_2_train_labels.csv"))
+            if found_labels:
+                downloaded_stage_2_labels = found_labels[0]
+                label_path.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(downloaded_stage_2_labels, label_path / "stage_2_train_labels.csv")
+                print(f"Copied stage_2_train_labels.csv from {downloaded_stage_2_labels} to {label_path}")
+            else:
+                raise Exception("Could not find stage_2_train_labels.csv in downloaded competition")
+
+        print(f"Successfully organized RSNA dataset and labels:")
+        print(f"  Images: {stage_2_train_path}")
+        print(f"  Labels: {label_path}")
+        return data_path, label_path
+
+    except Exception as e:
+        print(f"Failed to download RSNA competition data: {e}")
+        print("\nPlease download manually from:")
+        print("https://www.kaggle.com/competitions/rsna-pneumonia-detection-challenge/data")
+        print("Then ensure you have:")
+        print(f"  - {stage_2_train_path}/ (DICOM images)")
+        print(f"  - {label_path}/stage_2_train_labels.csv")
+        raise Exception(f"Failed to download RSNA competition data: {e}")
 
 
-def get_kaggle_image_paths(data_dir="./data/kaggle"):
+def get_ptmooney_image_paths(data_dir=str(Path(cfg.DATA_DIR) / "ptmooney")):
+    """
+    Get PTMOONEY Kaggle image paths (paultimothymooney/chest-xray-pneumonia).
+    This dataset contains only pneumonia images (label=1) organized in train/val/test folders.
+    """
     data_path = Path(data_dir)
     chest_xray_path = data_path / "chest_xray"
 
     if not chest_xray_path.exists():
-        raise FileNotFoundError(f"Kaggle dataset not found at {chest_xray_path}")
+        raise FileNotFoundError(f"PTMOONEY dataset not found at {chest_xray_path}")
 
     pneumonia_paths = []
 
@@ -241,7 +247,7 @@ def get_kaggle_image_paths(data_dir="./data/kaggle"):
         for ext in ["*.jpg", "*.jpeg", "*.png", "*.tif", ".tiff"]:
             pneumonia_paths.extend(list(pneumonia_train_path.glob(ext)))
     else:
-        raise FileNotFoundError(f"Could not find pneumonia images in Kaggle dataset at {pneumonia_train_path}")
+        raise FileNotFoundError(f"Could not find pneumonia images in PTMOONEY dataset at {pneumonia_train_path}")
 
     pneumonia_val_path = chest_xray_path / "val" / "PNEUMONIA"
     if pneumonia_val_path.exists():
@@ -252,7 +258,7 @@ def get_kaggle_image_paths(data_dir="./data/kaggle"):
     return pneumonia_paths
 
 
-def get_rsna_image_paths_and_labels(data_dir="./data/rsna", label_dir="./data/rsna_labels", label_filter=None):
+def get_rsna_image_paths_and_labels(data_dir=str(Path(cfg.DATA_DIR) / "rsna"), label_dir=str(Path(cfg.DATA_DIR) / "rsna_labels"), label_filter=None):
     """
     Get RSNA image paths and their corresponding labels.
     Args:
@@ -270,9 +276,9 @@ def get_rsna_image_paths_and_labels(data_dir="./data/rsna", label_dir="./data/rs
     if not data_path.exists():
         raise FileNotFoundError(f"RSNA dataset not found at {data_path}")
 
-    # Download labels if needed
+    # Download labels if needed (using the combined download function which handles both images and labels)
     if not label_path.exists():
-        label_path = download_rsna_labels(label_dir)
+        download_rsna_data_and_labels(str(data_path), str(label_path))
 
     # Load the stage 2 training labels (primary labels)
     stage2_label_file = label_path / "stage_2_train_labels.csv"
@@ -305,7 +311,7 @@ def get_rsna_image_paths_and_labels(data_dir="./data/rsna", label_dir="./data/rs
             # Read DICOM to get PatientID from metadata
             ds = pydicom.dcmread(str(dicom_path), stop_before_pixels=True)
             patient_id = getattr(ds, 'PatientID', None)
-            
+
             # Skip if no PatientID found
             if patient_id is None:
                 continue
@@ -422,7 +428,10 @@ def load_data_split(input_file):
     return train_paths, val_paths
 
 
-def create_kaggle_split_json(data_dir="./data", split_dir="./data/split"):
+def create_ptmooney_split_json(data_dir=str(Path(cfg.DATA_DIR) / "ptmooney"), split_dir=str(Path(cfg.DATA_DIR) / "split")):
+    """
+    Create train/validation split for PTMOONEY Kaggle dataset (paultimothymooney/chest-xray-pneumonia).
+    """
     # Get the directory where this module is located for JSON persistence
     module_dir = Path(__file__).resolve().parent
     module_dir.mkdir(parents=True, exist_ok=True)
@@ -434,22 +443,26 @@ def create_kaggle_split_json(data_dir="./data", split_dir="./data/split"):
     data_path.mkdir(parents=True, exist_ok=True)
 
     # Save/load JSON from module directory
-    split_file = module_dir / "kaggle_data_split.json"
+    split_file = module_dir / "ptmooney_data_split.json"
 
     if split_file.exists():
         return load_data_split(split_file)
 
-    all_paths = get_kaggle_image_paths(data_path / "kaggle")
+    all_paths = get_ptmooney_image_paths(data_path)
     train_paths, val_paths = create_simple_train_val_split(all_paths, val_fraction=0.2)
     save_data_split(train_paths, val_paths, split_file)
 
     return train_paths, val_paths
 
 
-def create_rsna_split_json(data_dir="./data/rsna", split_dir="./data/split", label_dir="./data/rsna_labels"):
+def create_rsna_split_json(data_dir=str(Path(cfg.DATA_DIR) / "rsna"), split_dir=str(Path(cfg.DATA_DIR) / "split"), label_dir=None):
     """
     Create train/validation split for RSNA dataset using image paths and labels
     """
+    # If label_dir is None, set it to the default location
+    if label_dir is None:
+        label_dir = str(Path(data_dir) / "rsna_labels")
+
     # Get the directory where this module is located for JSON persistence
     module_dir = Path(__file__).resolve().parent
     module_dir.mkdir(parents=True, exist_ok=True)
@@ -546,7 +559,10 @@ def create_rsna_split_json(data_dir="./data/rsna", split_dir="./data/split", lab
         "val_pneumonia_count": sum(1 for l in val_labels if l == 1),
     }
 
-    save_data_split(train_paths, val_paths, split_file)
+    # Save the split file directly to include labels
+    split_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(split_file, "w") as f:
+        json.dump(split_data, f, indent=2)
 
     # Also save a human-readable summary
     summary_file = data_path / "rsna_split_summary.json"
@@ -556,15 +572,18 @@ def create_rsna_split_json(data_dir="./data/rsna", split_dir="./data/split", lab
     return train_paths, val_paths, train_labels, val_labels
 
 
-def apply_kaggle_split(data_dir="./data", split_dir="./data/split"):
+def apply_ptmooney_split(data_dir=str(Path(cfg.DATA_DIR) / "ptmooney"), split_dir=str(Path(cfg.DATA_DIR) / "split")):
+    """
+    Apply the PTMOONEY Kaggle train/validation split by copying files to split directories.
+    """
     split_dir = Path(split_dir)
     data_path = Path(data_dir)
 
     # Get the directory where this module is located for JSON persistence
     module_dir = Path(__file__).resolve().parent
-    split_file = module_dir / "kaggle_data_split.json"
+    split_file = module_dir / "ptmooney_data_split.json"
     if not split_file.exists():
-        raise FileNotFoundError(f"Split file not found: {split_file}. Run create_kaggle_split_json first.")
+        raise FileNotFoundError(f"Split file not found: {split_file}. Run create_ptmooney_split_json first.")
 
     train_paths, val_paths = load_data_split(split_file)
 
@@ -579,7 +598,7 @@ def apply_kaggle_split(data_dir="./data", split_dir="./data/split"):
         shutil.rmtree(split_val_dir)
     split_val_dir.mkdir(parents=True)
 
-    source_base = data_path / "kaggle" / "chest_xray"
+    source_base = data_path / "chest_xray"
 
     for src_path in train_paths:
         dst_path = split_train_dir / src_path.name
@@ -604,10 +623,14 @@ def apply_kaggle_split(data_dir="./data", split_dir="./data/split"):
         shutil.copy2(src_path, dst_path)
 
 
-def apply_rsna_split(data_dir="./data/rsna", split_dir="./data/split", label_dir="./data/rsna_labels"):
+def apply_rsna_split(data_dir=str(Path(cfg.DATA_DIR) / "rsna"), split_dir=str(Path(cfg.DATA_DIR) / "split"), label_dir=None):
     """
     Apply the RSNA train/validation split by copying files to split directories
     """
+    # If label_dir is None, set it to the default location
+    if label_dir is None:
+        label_dir = str(Path(data_dir) / "rsna_labels")
+
     split_dir = Path(split_dir)
     data_path = Path(data_dir)
 
@@ -666,13 +689,18 @@ def apply_rsna_split(data_dir="./data/rsna", split_dir="./data/split", label_dir
         shutil.copy2(src_path, dst_path)
 
 
-def prepare_kaggle_data(data_dir="./data", split_dir="./data/split"):
-    download_kaggle_dataset_to_dir(Path(data_dir) / "kaggle")
-    create_kaggle_split_json(data_dir, split_dir)
-    apply_kaggle_split(data_dir, split_dir)
+def prepare_ptmooney_data(data_dir=str(Path(cfg.DATA_DIR) / "ptmooney"), split_dir=str(Path(cfg.DATA_DIR) / "split")):
+    """
+    Prepare the Kaggle pneumoniadata (paultimothymooney/chest-xray-pneumonia).
+    Downloads images, creates train/validation split, and applies the split.
+    This dataset contains only pneumonia images (label=1) organized in train/test/val folders.
+    """
+    download_ptmooney_dataset_to_dir(data_dir)
+    create_ptmooney_split_json(data_dir, split_dir)
+    apply_ptmooney_split(data_dir, split_dir)
 
 
-def prepare_rsna_data(data_dir="./data", split_dir="./data/split", label_dir=None):
+def prepare_rsna_data(data_dir=str(Path(cfg.DATA_DIR) / "rsna"), split_dir=str(Path(cfg.DATA_DIR) / "split"), label_dir=None):
     """
     Prepare RSNA data: download images, download labels, create split, apply split
     Downloads label files if they don't exist locally.
@@ -682,16 +710,16 @@ def prepare_rsna_data(data_dir="./data", split_dir="./data/split", label_dir=Non
     if label_dir is None:
         label_dir = str(Path(data_dir) / "rsna_labels")
 
-    # Download/verify RSNA images exist
-    rsna_data_path = Path(data_dir) / "rsna"
-    download_rsna_dataset_to_dir(rsna_data_path)
+    # Download/verify RSNA images and labels exist
+    rsna_data_path = Path(data_dir)
+    downloaded_data_path, downloaded_label_path = download_rsna_data_and_labels(rsna_data_path, label_dir)
 
-    # Download/verify label files exist
-    download_rsna_labels(label_dir)
+    # The images are actually in the stage_2_train_images subdirectory
+    image_data_path = downloaded_data_path / "stage_2_train_images"
 
     # Create and apply the split
-    create_rsna_split_json(rsna_data_path, split_dir, label_dir)
-    apply_rsna_split(rsna_data_path, split_dir, label_dir)
+    create_rsna_split_json(image_data_path, split_dir, downloaded_label_path)
+    apply_rsna_split(image_data_path, split_dir, downloaded_label_path)
 
 
 def clean_data_splits(data_dir="./data", split_dir="./data/split"):

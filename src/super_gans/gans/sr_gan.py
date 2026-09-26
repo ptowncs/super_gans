@@ -333,9 +333,18 @@ def main(restart=False, best_fid=float('inf'), best_fid_epoch=0):
     start_epoch = 1
     wandb = createWandB()
     utils.prepare_data()
-    loader = DataLoader(load_datapairs(), batch_size=cfg.batch_size, shuffle=True, num_workers=cfg.num_workers, pin_memory=cfg.num_workers > 0,
-                    prefetch_factor=4,
-                    persistent_workers=True)
+    loader_kwargs = {
+    'dataset': load_datapairs(),
+    'batch_size': cfg.batch_size,
+    'shuffle': True,
+    'num_workers': cfg.num_workers,
+    'pin_memory': cfg.num_workers > 0,
+}
+if cfg.num_workers > 0:
+    loader_kwargs['prefetch_factor'] = 4
+    loader_kwargs['persistent_workers'] = True
+
+loader = DataLoader(**loader_kwargs)
     gen = Generator(in_channels=cfg.num_channels).to(cfg.device)
     disc = Discriminator(in_channels=cfg.num_channels).to(cfg.device)
     opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr, betas=(0.9, 0.999))

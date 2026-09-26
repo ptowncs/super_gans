@@ -56,24 +56,24 @@ with resources.files("super_gans").joinpath("config.yaml").open("r") as f:
 print(config)
 print(config["repos"]["dataset_handle"])
 
-# Data source selection: 'kaggle' or 'rsna'
-# In Kaggle environment, default to kaggle unless explicitly overridden to rsna
+# Data source selection: 'ptmooney' or 'rsna'
+# In Kaggle environment, default to ptmooney unless explicitly overridden to rsna
 # This prevents accidentally trying to load RSNA data in Kaggle without proper setup
 if IN_KAGGLE:
-    # In Kaggle, default to kaggle dataset unless user explicitly wants rsna
-    DATA_SOURCE = os.environ.get("DATA_SOURCE", "kaggle").lower()
-    if DATA_SOURCE not in ["kaggle", "rsna"]:
-        print(f"WARNING: Unknown DATA_SOURCE '{DATA_SOURCE}', defaulting to 'kaggle'")
-        DATA_SOURCE = "kaggle"
+    # In Kaggle, default to ptmooney dataset unless user explicitly wants rsna
+    DATA_SOURCE = os.environ.get("DATA_SOURCE", "ptmooney").lower()
+    if DATA_SOURCE not in ["ptmooney", "rsna"]:
+        print(f"WARNING: Unknown DATA_SOURCE '{DATA_SOURCE}', defaulting to 'ptmooney'")
+        DATA_SOURCE = "ptmooney"
 elif IN_COLAB:
     # In Colab, require explicit setting
-    DATA_SOURCE = os.environ.get("DATA_SOURCE", "kaggle").lower()
-    if DATA_SOURCE not in ["kaggle", "rsna"]:
-        print(f"WARNING: Unknown DATA_SOURCE '{DATA_SOURCE}', defaulting to 'kaggle'")
-        DATA_SOURCE = "kaggle"
+    DATA_SOURCE = os.environ.get("DATA_SOURCE", "ptmooney").lower()
+    if DATA_SOURCE not in ["ptmooney", "rsna"]:
+        print(f"WARNING: Unknown DATA_SOURCE '{DATA_SOURCE}', defaulting to 'ptmooney'")
+        DATA_SOURCE = "ptmooney"
 else:
     # Local environment
-    DATA_SOURCE = os.environ.get("DATA_SOURCE", "kaggle").lower()
+    DATA_SOURCE = os.environ.get("DATA_SOURCE", "ptmooney").lower()
 
 print(f"Using data source: {DATA_SOURCE}")
 
@@ -87,12 +87,12 @@ num_channels = 1
 num_workers = 0
 image_dim = image_size * image_size * num_channels
 batch_size = 64
-num_epochs = 20
+num_epochs = 2
 classify_num_epochs = 15
 classify_image_size = 224
 num_images_fid_sample = 4 * batch_size  # 256
 num_images_fid_score = 5000
-fid_interval = 10
+fid_interval = 1
 fid_dims = 2048
 betas = (0.5, 0.999)
 

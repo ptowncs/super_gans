@@ -17,6 +17,12 @@ import wandb
 from super_gans import utils
 from super_gans import metrics
 
+# Enable cuDNN auto‑tuner to pick the fastest convolution algorithms for fixed‑size inputs
+torch.backends.cudnn.benchmark = True
+# Allow TensorFloat‑32 (TF32) on matrix multiplications and cuDNN operations (Ampere+ GPUs)
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
+
 
 def cosine_beta_schedule(timesteps, s=0.008):
     """
@@ -220,14 +226,22 @@ def training_loop(
     diffusion,
     dataset,
     wandb,
-    start_epoch=0,
+    start_epoch=1,
     best_fid=float("inf"),
     best_fid_epoch=0,
 ):
     # Create data loader
-    loader = DataLoader(
-        dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=2, pin_memory=True
-    )
+    loader_kwargs = {
+        'batch_size': cfg.batch_size,
+        'shuffle': True,
+        'num_workers': cfg.num_workers,
+        'pin_memory': cfg.num_workers > 0,
+    }
+    if cfg.num_workers > 0:
+        loader_kwargs['prefetch_factor'] = 4
+        loader_kwargs['persistent_workers'] = True
+
+    loader = DataLoader(dataset, **loader_kwargs)
 
     # Optimizer
     optimizer = optim.Adam(model.parameters(), lr=cfg.lr)
@@ -236,7 +250,7 @@ def training_loop(
     wandb.define_metric("epoch", hidden=True)
     wandb.define_metric("*", step_metric="epoch")
 
-    for epoch in range(start_epoch, cfg.num_epochs):
+    for epoch in range(start_epoch, cfg.num_epochs + 1):
         process = psutil.Process(os.getpid())
         print(
             f"Epoch: {epoch} | RAM GB: {process.memory_info().rss / 1024**3:.2f} \
@@ -285,7 +299,7 @@ def training_loop(
         )
 
         # --- VISUALS AT START OF EPOCH ---
-        if epoch % 10 == 0:
+        if epoch == start_epoch or epoch % 10 == 0:
             print(f"Epoch [{epoch}/{cfg.num_epochs}] Loss: {avg_loss:.4f}")
             # Generate some samples to log to WandB
             model.eval()
@@ -301,7 +315,7 @@ def training_loop(
             model.train()
 
         # --- FID CALCULATION AT END OF EPOCH ---
-        if (epoch % cfg.fid_interval == 0) or (epoch == cfg.num_epochs - 1):
+        if (epoch == start_epoch) or (epoch % cfg.fid_interval == 0) or (epoch == cfg.num_epochs):
             # Save current model as latest
             utils.save_model(model, model, optimizer, optimizer, epoch, filename="latest_diffusion.pth")
             # For FID, we need to generate a set of images and compare to real images
@@ -344,6 +358,7 @@ def training_loop(
                     best_fid = fid_value
                     best_fid_epoch = epoch
                     utils.save_model(model, model, optimizer, optimizer, epoch, filename="best_diffusion.pth")
+                    print(f"*** New best FID: {best_fid:.4f} at epoch {best_fid_epoch} ***")
             model.train()
         else:
             # Commit the losses and move the custom timeline forward on non-FID epochs
@@ -399,6 +414,9 @@ def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
         in_channels=cfg.num_channels,
         out_channels=cfg.num_channels
     ).to(cfg.device)
+    # Compile model for faster training (PyTorch 2.0+)
+    if hasattr(torch, "compile"):
+        model = torch.compile(model)
 
     # Create the diffusion process
     diffusion = Diffusion(
@@ -407,18 +425,18 @@ def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
         beta_end=cfg.diffusion_beta_end
     )
 
-    start_epoch = 0
+    start_epoch = 1
     if restart:
         # Check for existing checkpoint to resume training
         start_epoch = utils.reload_checkpoint_model(model, None, None, None)
 
-    if start_epoch == 0:
+    if start_epoch == 1:
         print("Starting training from scratch")
     else:
         print(f"Resuming training from epoch {start_epoch}")
 
     optimizer, best_fid, best_fid_epoch = training_loop(
-        model, diffusion, train_dataset, wandb, start_epoch=start_epoch
+        model, diffusion, train_dataset, wandb, start_epoch, best_fid, best_fid_epoch
     )
     # Save final checkpoint
     utils.save_model(

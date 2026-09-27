@@ -124,7 +124,9 @@ class Generator(nn.Module):
         self.tanh = nn.Tanh()
 
     def forward(self, input):
-        x = self.main(input)
+        # Reshape input from [batch_size, z_dim] to [batch_size, z_dim, 1, 1] for ConvTranspose2d
+        x = input.view(input.size(0), input.size(1), 1, 1)
+        x = self.main(x)
         x = self.upsample(x)
         return self.tanh(x)
 

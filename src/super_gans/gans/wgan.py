@@ -71,9 +71,8 @@ class Critic(nn.Module):
             _block(channels * 2, channels * 4, 4, 2, 1), # -> 32x32
             _block(channels * 4, channels * 8, 4, 2, 1), # -> 16x16
             _block(channels * 8, channels * 16, 4, 2, 1),# -> 8x8
-            _block(channels * 16, channels * 32, 4, 2, 1),# -> 4x4
             # After the above blocks we have 4x4 feature map
-            nn.Conv2d(channels * 32, 1, 4, 2, 0, bias=False), # -> 1x1
+            nn.Conv2d(channels * 16, 1, 4, 1, 0, bias=False), # -> 1x1
             # No Sigmoid because we use the Wasserstein loss
         )
 
@@ -130,31 +129,6 @@ class Generator(nn.Module):
         return self.tanh(x)
 
 
-def gradient_penalty(critic, real, fake, device="cpu"):
-    """
-    Calculate gradient penalty for WGAN-GP
-    """
-    BATCH_SIZE, C, H, W = real.shape
-    alpha = torch.rand((BATCH_SIZE, 1, 1, 1)).repeat(1, C, H, W).to(device)
-    interpolated = real * alpha + fake * (1 - alpha)
-
-    # Calculate critic scores
-    mixed_scores = critic(interpolated)
-
-    # Take the gradient of the scores with respect to the images
-    gradient = torch.autograd.grad(
-        inputs=interpolated,
-        outputs=mixed_scores,
-        grad_outputs=torch.ones_like(mixed_scores),
-        create_graph=True,
-        retain_graph=True,
-    )[0]
-    gradient = gradient.view(gradient.shape[0], -1)
-    gradient_norm = gradient.norm(2, dim=1)
-    gradient_penalty = ((gradient_norm - 1) ** 2).mean()
-    return gradient_penalty
-
-
 def training_loop(
     critic,
     gen,
@@ -179,6 +153,7 @@ def training_loop(
 
     # Setup CSV logging
     train_csv_path = utils.setup_training_csv("wgan")
+    val_csv_path = utils.setup_training_csv("wgan")  # Using same CSV for simplicity
 
     # Create data loader for efficient batching
     loader_kwargs = {

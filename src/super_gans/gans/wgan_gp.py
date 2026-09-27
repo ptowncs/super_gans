@@ -71,9 +71,8 @@ class Critic(nn.Module):
             _block(channels * 2, channels * 4, 4, 2, 1), # -> 32x32
             _block(channels * 4, channels * 8, 4, 2, 1), # -> 16x16
             _block(channels * 8, channels * 16, 4, 2, 1),# -> 8x8
-            _block(channels * 16, channels * 32, 4, 2, 1),# -> 4x4
             # After the above blocks we have 4x4 feature map
-            nn.Conv2d(channels * 32, 1, 4, 2, 0, bias=False), # -> 1x1
+            nn.Conv2d(channels * 16, 1, 4, 1, 0, bias=False), # -> 1x1
             # No Sigmoid because we use the Wasserstein loss with gradient penalty
         )
 
@@ -86,9 +85,9 @@ class Generator(nn.Module):
     WGAN-GP Generator: Same as DCGAN generator but without the final Sigmoid
     (though we keep Tanh for consistency with [-1,1] range).
     Architecture follows the DCGAN generator pattern (adjusted for 128x128 output).
-    An explicit upsample layer is kept as a safety‑net for experimenting with
+    An explicit upsample layer is kept as a safety-net for experimenting with
     different image sizes; this deviates from the strict reference but adds
-    virtually no cost and protects against off‑by‑one errors.
+    virtually no cost and protects against off-by-one errors.
     """
 
     def __init__(self, z_dim=128, channels=64):
@@ -179,6 +178,7 @@ def training_loop(
 
     # Setup CSV logging
     train_csv_path = utils.setup_training_csv("wgan_gp")
+    val_csv_path = utils.setup_training_csv("wgan_gp")  # Using same CSV for simplicity
 
     for epoch in range(start_epoch, cfg.num_epochs):
         process = psutil.Process(os.getpid())

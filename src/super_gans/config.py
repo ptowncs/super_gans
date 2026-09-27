@@ -71,6 +71,9 @@ elif IN_COLAB:
 else:
     # Local environment
     DATA_SOURCE = os.environ.get("DATA_SOURCE", "ptmooney").lower()
+    if DATA_SOURCE not in ["ptmooney", "rsna"]:
+        print(f"WARNING: Unknown DATA_SOURCE '{DATA_SOURCE}', defaulting to 'ptmooney'")
+        DATA_SOURCE = "ptmooney"
 
 print(f"Using data source: {DATA_SOURCE}")
 
@@ -92,6 +95,13 @@ num_images_fid_score = 5000
 fid_interval = 1
 fid_dims = 2048
 betas = (0.5, 0.999)
+
+# WGAN / WGAN-GP specific hyperparameters
+n_critic = 5          # Number of critic iterations per generator iteration
+weight_clip = 0.01    # Clipping parameter for original WGAN
+lambda_gp = 10        # Gradient penalty coefficient for WGAN-GP
+# Alternative betas for WGAN/WGAN-GP (often beta1=0.0, beta2=0.9)
+wgan_betas = (0.0, 0.9)
 
 HIGH_RES = 128
 LOW_RES = HIGH_RES // 4
@@ -144,3 +154,11 @@ test_transform = A.Compose(
         ToTensorV2(),
     ]
 )
+
+
+# Diffusion model parameters
+diffusion_timesteps = 1000  # Number of diffusion steps
+diffusion_beta_start = 0.0001  # Starting value of beta schedule
+diffusion_beta_end = 0.02      # Ending value of beta schedule
+# We'll use a linear schedule from beta_start to beta_end over diffusion_timesteps
+

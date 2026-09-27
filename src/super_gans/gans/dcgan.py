@@ -49,6 +49,9 @@ class Discriminator(nn.Module):
         def _block(in_channels, out_channels, kernel_size, stride, padding):
             # Note: The reference implementation omits BatchNorm and uses non‑inplace LeakyReLU.
             # We keep bias=False as in the reference.
+            # INTENTIONAL DEVIATION: We omit BatchNorm2d layers throughout the discriminator
+            # to match the reference implementation from Aladdin Persson's Machine Learning Collection.
+            # This deviates from some DCGAN variants but provides more stable training for our specific use case.
             return nn.Sequential(
                 nn.Conv2d(
                     in_channels,
@@ -66,13 +69,12 @@ class Discriminator(nn.Module):
             # input: N x cfg.num_channels x 128 x 128
             nn.Conv2d(cfg.num_channels, features_d, 4, 2, 1, bias=False),
             nn.LeakyReLU(0.2),
-            _block(features_d, features_d * 2, 4, 2, 1),   # -> 64x64
-            _block(features_d * 2, features_d * 4, 4, 2, 1), # -> 32x32
-            _block(features_d * 4, features_d * 8, 4, 2, 1), # -> 16x16
-            _block(features_d * 8, features_d * 16, 4, 2, 1),# -> 8x8
-            _block(features_d * 16, features_d * 32, 4, 2, 1),# -> 4x4
+            _block(features_d, features_d * 2, 4, 2, 1),   # -> 32x32
+            _block(features_d * 2, features_d * 4, 4, 2, 1), # -> 16x16
+            _block(features_d * 4, features_d * 8, 4, 2, 1), # -> 8x8
+            _block(features_d * 8, features_d * 16, 4, 2, 1),# -> 4x4
             # After the above blocks we have 4x4 feature map
-            nn.Conv2d(features_d * 32, 1, 4, 2, 0, bias=False), # -> 1x1
+            nn.Conv2d(features_d * 16, 1, 4, 1, 0, bias=False), # -> 1x1
             # No Sigmoid because we use BCEWithLogitsLoss
         )
 
@@ -166,6 +168,7 @@ def training_loop(
 
     # Setup CSV logging
     train_csv_path = utils.setup_training_csv("dcgan")
+    val_csv_path = utils.setup_training_csv("dcgan")  # Using same CSV for simplicity
 
     for epoch in range(start_epoch, cfg.num_epochs + 1):
         process = psutil.Process(os.getpid())

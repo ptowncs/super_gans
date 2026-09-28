@@ -345,6 +345,7 @@ if cfg.num_workers > 0:
     loader_kwargs['persistent_workers'] = True
 
 loader = DataLoader(**loader_kwargs)
+    val_csv_path = utils.setup_training_csv("srgan")
     gen = Generator(in_channels=cfg.num_channels).to(cfg.device)
     disc = Discriminator(in_channels=cfg.num_channels).to(cfg.device)
     opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr, betas=(0.9, 0.999))

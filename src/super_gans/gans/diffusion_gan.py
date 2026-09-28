@@ -407,6 +407,9 @@ def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
     wandb = createWandB()
     utils.prepare_data()
     train_dataset = utils.load_data()
+    # Setup CSV logging
+    train_csv_path = utils.setup_training_csv("diffusion")
+    val_csv_path = utils.setup_training_csv("diffusion")  # Using same CSV for simplicity
 
     # Create the model
     model = DiffusionUNet(
@@ -483,6 +486,14 @@ def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
         kid_mean, kid_std = metrics.calc_kid_score(real_images_dir, generated_images_dir)
         print(f"FID score: {fid_value}")
         print(f"KID mean: {kid_mean:.6f}, KID std: {kid_std:.6f}")
+
+        # Log validation metrics to CSV
+        utils.log_validation_row(val_csv_path,
+                                best_fid_epoch,
+                                best_fid,  # This is the best FID observed during training
+                                fid_value,  # This is the final FID from evaluation of best model
+                                kid_mean,
+                                kid_std)
 
     # writer.close()
     uploadLogsAndMetricsToWandB(wandb)

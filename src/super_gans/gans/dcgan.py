@@ -40,19 +40,19 @@ class Discriminator(nn.Module):
     """
     Discriminator: increases the number of channels(features) while downsampling the spatial dimensions.
     Architecture follows the DCGAN paper (adjusted for 128x128 input).
+    Note: Uses BatchNorm in all layers except the first, deviating from Aladdin Persson's reference
+    implementation to improve training stability for medical image generation.
     """
 
     def __init__(self, features_d=64):
         super(Discriminator, self).__init__()
         self.features_d = features_d
 
-        def _block(in_channels, out_channels, kernel_size, stride, padding):
-            # Note: The reference implementation omits BatchNorm and uses non‑inplace LeakyReLU.
-            # We keep bias=False as in the reference.
-            # INTENTIONAL DEVIATION: We omit BatchNorm2d layers throughout the discriminator
-            # to match the reference implementation from Aladdin Persson's Machine Learning Collection.
-            # This deviates from some DCGAN variants but provides more stable training for our specific use case.
-            return nn.Sequential(
+        def _block(in_channels, out_channels, kernel_size, stride, padding, norm=True):
+            # Following DCGAN paper: BatchNorm and bias=False for conv layers
+            # Note: First layer of Discriminator does not use BatchNorm
+            # Note: Using BatchNorm2d for stability; some references (e.g., Aladdin) use InstanceNorm2d
+            layers = [
                 nn.Conv2d(
                     in_channels,
                     out_channels,
@@ -60,21 +60,24 @@ class Discriminator(nn.Module):
                     stride,
                     padding,
                     bias=False,
-                ),
-                # nn.BatchNorm2d(out_channels),  # intentionally omitted to match reference
-                nn.LeakyReLU(0.2),
-            )
+                )
+            ]
+            if norm:
+                layers.append(nn.BatchNorm2d(out_channels))
+            layers.append(nn.LeakyReLU(0.2, inplace=False))
+            return nn.Sequential(*layers)
 
         self.disc = nn.Sequential(
             # input: N x cfg.num_channels x 128 x 128
             nn.Conv2d(cfg.num_channels, features_d, 4, 2, 1, bias=False),
             nn.LeakyReLU(0.2),
-            _block(features_d, features_d * 2, 4, 2, 1),   # -> 32x32
-            _block(features_d * 2, features_d * 4, 4, 2, 1), # -> 16x16
-            _block(features_d * 4, features_d * 8, 4, 2, 1), # -> 8x8
-            _block(features_d * 8, features_d * 16, 4, 2, 1),# -> 4x4
+            _block(features_d, features_d * 2, 4, 2, 1),   # -> 64x64
+            _block(features_d * 2, features_d * 4, 4, 2, 1), # -> 32x32
+            _block(features_d * 4, features_d * 8, 4, 2, 1), # -> 16x16
+            _block(features_d * 8, features_d * 16, 4, 2, 1),# -> 8x8
+            _block(features_d * 16, features_d * 32, 4, 2, 1), # -> 4x4
             # After the above blocks we have 4x4 feature map
-            nn.Conv2d(features_d * 16, 1, 4, 1, 0, bias=False), # -> 1x1
+            nn.Conv2d(features_d * 32, 1, 4, 1, 0, bias=False), # -> 1x1
             # No Sigmoid because we use BCEWithLogitsLoss
         )
 
@@ -86,9 +89,10 @@ class Generator(nn.Module):
     """
     Generator: increases spatial dimensions while decreasing channel depth.
     Architecture follows the DCGAN paper (adjusted for 128x128 output).
-    An explicit upsample layer is kept as a safety‑net for experimenting with
-    different image sizes; this deviates from the strict reference but adds
-    virtually no cost and protects against off‑by‑one errors.
+    Note: Uses BatchNorm in all layers except the last, deviating from Aladdin Persson's reference
+    implementation to improve training stability for medical image generation.
+    An explicit upsample layer is kept as a safety‑net for experimenting with different image sizes;
+    this deviates from the strict reference but adds virtually no cost and protects against off‑by‑one errors.
     """
 
     def __init__(self, z_dim=128, features_g=64):
@@ -96,9 +100,11 @@ class Generator(nn.Module):
         self.z_dim = z_dim
         self.features_g = features_g
 
-        def _block(in_channels, out_channels, kernel_size, stride, padding):
-            # Note: The reference implementation omits BatchNorm and uses non‑inplace ReLU.
-            return nn.Sequential(
+        def _block(in_channels, out_channels, kernel_size, stride, padding, norm=True):
+            # Following DCGAN paper: BatchNorm and bias=False for conv layers
+            # Note: Last layer of Generator does not use BatchNorm
+            # Note: Using BatchNorm2d for stability; some references (e.g., Aladdin) use InstanceNorm2d
+            layers = [
                 nn.ConvTranspose2d(
                     in_channels,
                     out_channels,
@@ -106,18 +112,20 @@ class Generator(nn.Module):
                     stride,
                     padding,
                     bias=False,
-                ),
-                # nn.BatchNorm2d(out_channels),  # intentionally omitted to match reference
-                nn.ReLU(),
-            )
+                )
+            ]
+            if norm:
+                layers.append(nn.BatchNorm2d(out_channels))
+            layers.append(nn.ReLU(inplace=False))
+            return nn.Sequential(*layers)
 
         # Build: z_dim -> features_g*16 x 4x4
         self.net = nn.Sequential(
-            _block(z_dim, features_g * 16, 4, 1, 0),   # 4x4
-            _block(features_g * 16, features_g * 8, 4, 2, 1),  # 8x8
-            _block(features_g * 8, features_g * 4, 4, 2, 1),   # 16x16
-            _block(features_g * 4, features_g * 2, 4, 2, 1),   # 32x32
-            _block(features_g * 2, features_g, 4, 2, 1),       # 64x64
+            _block(z_dim, features_g * 16, 4, 1, 0, norm=True),   # 4x4
+            _block(features_g * 16, features_g * 8, 4, 2, 1, norm=True),  # 8x8
+            _block(features_g * 8, features_g * 4, 4, 2, 1, norm=True),   # 16x16
+            _block(features_g * 4, features_g * 2, 4, 2, 1, norm=True),   # 32x32
+            _block(features_g * 2, features_g, 4, 2, 1, norm=True),       # 64x64
             nn.ConvTranspose2d(features_g, cfg.num_channels, 4, 2, 1, bias=False),
         )
         # Safety upsample to guarantee exact output size when experimenting
@@ -276,7 +284,7 @@ def training_loop(
     wandb.summary["Best FID Epoch"] = best_fid_epoch
     wandb.summary["Best FID Score"] = best_fid
 
-    return opt_disc, opt_gen, best_fid, best_fid_epoch
+    return opt_disc, opt_gen, best_fid, best_fid_epoch, val_csv_path
 
 
 def uploadLogsAndMetricsToWandB(wandb):
@@ -332,7 +340,7 @@ def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
     else:
         print(f"Resuming training from epoch {start_epoch}")
 
-    opt_disc, opt_gen, best_fid, best_fid_epoch = training_loop(
+    opt_disc, opt_gen, best_fid, best_fid_epoch, val_csv_path = training_loop(
         disc, gen, opt_disc, opt_gen, train_dataset, wandb, start_epoch, best_fid, best_fid_epoch
     )
     utils.save_model(

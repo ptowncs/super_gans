@@ -47,10 +47,11 @@ class Critic(nn.Module):
         super(Critic, self).__init__()
         self.channels = channels
 
-        def _block(in_channels, out_channels, kernel_size, stride, padding):
-            # Note: The reference implementation omits BatchNorm and uses non‑inplace LeakyReLU.
-            # We keep bias=False as in the reference.
-            return nn.Sequential(
+        def _block(in_channels, out_channels, kernel_size, stride, padding, norm=True):
+            # Following DCGAN paper: BatchNorm and bias=False for conv layers
+            # Note: First layer of Critic does not use BatchNorm
+            # Note: Using BatchNorm2d for stability; some references (e.g., Aladdin) use InstanceNorm2d
+            layers = [
                 nn.Conv2d(
                     in_channels,
                     out_channels,
@@ -58,21 +59,24 @@ class Critic(nn.Module):
                     stride,
                     padding,
                     bias=False,
-                ),
-                # nn.BatchNorm2d(out_channels),  # intentionally omitted to match reference
-                nn.LeakyReLU(0.2),
-            )
+                )
+            ]
+            if norm:
+                layers.append(nn.BatchNorm2d(out_channels))
+            layers.append(nn.LeakyReLU(0.2, inplace=False))
+            return nn.Sequential(*layers)
 
         # input: N x cfg.num_channels x 128 x 128
         self.main = nn.Sequential(
             nn.Conv2d(cfg.num_channels, channels, 4, 2, 1, bias=False),
             nn.LeakyReLU(0.2),
-            _block(channels, channels * 2, 4, 2, 1),   # -> 64x64
-            _block(channels * 2, channels * 4, 4, 2, 1), # -> 32x32
-            _block(channels * 4, channels * 8, 4, 2, 1), # -> 16x16
-            _block(channels * 8, channels * 16, 4, 2, 1),# -> 8x8
+            _block(channels, channels * 2, 4, 2, 1, norm=True),   # -> 64x64
+            _block(channels * 2, channels * 4, 4, 2, 1, norm=True), # -> 32x32
+            _block(channels * 4, channels * 8, 4, 2, 1, norm=True), # -> 16x16
+            _block(channels * 8, channels * 16, 4, 2, 1, norm=True),# -> 8x8
+            _block(channels * 16, channels * 32, 4, 2, 1, norm=True), # -> 4x4
             # After the above blocks we have 4x4 feature map
-            nn.Conv2d(channels * 16, 1, 4, 1, 0, bias=False), # -> 1x1
+            nn.Conv2d(channels * 32, 1, 4, 1, 0, bias=False), # -> 1x1
             # No Sigmoid because we use the Wasserstein loss
         )
 
@@ -95,9 +99,11 @@ class Generator(nn.Module):
         self.z_dim = z_dim
         self.channels = channels
 
-        def _block(in_channels, out_channels, kernel_size, stride, padding):
-            # Note: The reference implementation omits BatchNorm and uses non‑inplace ReLU.
-            return nn.Sequential(
+        def _block(in_channels, out_channels, kernel_size, stride, padding, norm=True):
+            # Following DCGAN paper: BatchNorm and bias=False for conv layers
+            # Note: Last layer of Generator does not use BatchNorm
+            # Note: Using BatchNorm2d for stability; some references (e.g., Aladdin) use InstanceNorm2d
+            layers = [
                 nn.ConvTranspose2d(
                     in_channels,
                     out_channels,
@@ -105,18 +111,20 @@ class Generator(nn.Module):
                     stride,
                     padding,
                     bias=False,
-                ),
-                # nn.BatchNorm2d(out_channels),  # intentionally omitted to match reference
-                nn.ReLU(),
-            )
+                )
+            ]
+            if norm:
+                layers.append(nn.BatchNorm2d(out_channels))
+            layers.append(nn.ReLU(inplace=False))
+            return nn.Sequential(*layers)
 
         # Start with z_dim -> channels*16 x 4 x 4
         self.main = nn.Sequential(
-            _block(z_dim, channels * 16, 4, 1, 0),   # 4x4
-            _block(channels * 16, channels * 8, 4, 2, 1),  # 8x8
-            _block(channels * 8, channels * 4, 4, 2, 1),   # 16x16
-            _block(channels * 4, channels * 2, 4, 2, 1),   # 32x32
-            _block(channels * 2, channels, 4, 2, 1),       # 64x64
+            _block(z_dim, channels * 16, 4, 1, 0, norm=True),   # 4x4
+            _block(channels * 16, channels * 8, 4, 2, 1, norm=True),  # 8x8
+            _block(channels * 8, channels * 4, 4, 2, 1, norm=True),   # 16x16
+            _block(channels * 4, channels * 2, 4, 2, 1, norm=True),   # 32x32
+            _block(channels * 2, channels, 4, 2, 1, norm=True),       # 64x64
             nn.ConvTranspose2d(channels, cfg.num_channels, 4, 2, 1, bias=False),
         )
         # Safety upsample to guarantee exact output size when experimenting
@@ -269,7 +277,7 @@ def training_loop(
     wandb.summary["Best FID Epoch"] = best_fid_epoch
     wandb.summary["Best FID Score"] = best_fid
 
-    return opt_critic, opt_gen, best_fid, best_fid_epoch
+    return opt_critic, opt_gen, best_fid, best_fid_epoch, val_csv_path
 
 
 def uploadLogsAndMetricsToWandB(wandb):
@@ -327,7 +335,7 @@ def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
     else:
         print(f"Resuming training from epoch {start_epoch}")
 
-    opt_critic, opt_gen, best_fid, best_fid_epoch = training_loop(
+    opt_critic, opt_gen, best_fid, best_fid_epoch, val_csv_path = training_loop(
         critic, gen, opt_critic, opt_gen, train_dataset, wandb, start_epoch=start_epoch
     )
     utils.save_model(

@@ -51,6 +51,7 @@ class Critic(nn.Module):
             # Following DCGAN paper: BatchNorm and bias=False for conv layers
             # Note: First layer of Critic does not use BatchNorm
             # Note: Using BatchNorm2d for stability; some references (e.g., Aladdin) use InstanceNorm2d
+            # Note: Final layer uses padding=0 to ensure proper 2x2->1x1 downsampling
             layers = [
                 nn.Conv2d(
                     in_channels,
@@ -77,7 +78,7 @@ class Critic(nn.Module):
             _block(channels * 16, channels * 32, 4, 2, 1, norm=True), # -> 4x4
             _block(channels * 32, channels * 64, 4, 2, 1, norm=True), # -> 2x2
             # After the above blocks we have 2x2 feature map
-            nn.Conv2d(channels * 64, 1, 4, 1, 1, bias=False), # -> 1x1
+            nn.Conv2d(channels * 64, 1, 4, 1, 0, bias=False), # -> 1x1
             # No Sigmoid because we use the Wasserstein loss with gradient penalty
         )
 

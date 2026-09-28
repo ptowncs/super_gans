@@ -52,6 +52,7 @@ class Discriminator(nn.Module):
             # Following DCGAN paper: BatchNorm and bias=False for conv layers
             # Note: First layer of Discriminator does not use BatchNorm
             # Note: Using BatchNorm2d for stability; some references (e.g., Aladdin) use InstanceNorm2d
+            # Note: Final layer uses padding=0 to ensure proper 2x2->1x1 downsampling
             layers = [
                 nn.Conv2d(
                     in_channels,
@@ -78,7 +79,7 @@ class Discriminator(nn.Module):
             _block(features_d * 16, features_d * 32, 4, 2, 1), # -> 4x4
             _block(features_d * 32, features_d * 64, 4, 2, 1), # -> 2x2
             # After the above blocks we have 2x2 feature map
-            nn.Conv2d(features_d * 64, 1, 4, 1, 1, bias=False), # -> 1x1
+            nn.Conv2d(features_d * 64, 1, 4, 1, 0, bias=False), # -> 1x1
             # No Sigmoid because we use BCEWithLogitsLoss
         )
 

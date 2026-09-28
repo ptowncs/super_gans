@@ -76,8 +76,9 @@ class Discriminator(nn.Module):
             _block(features_d * 4, features_d * 8, 4, 2, 1), # -> 16x16
             _block(features_d * 8, features_d * 16, 4, 2, 1),# -> 8x8
             _block(features_d * 16, features_d * 32, 4, 2, 1), # -> 4x4
-            # After the above blocks we have 4x4 feature map
-            nn.Conv2d(features_d * 32, 1, 4, 1, 0, bias=False), # -> 1x1
+            _block(features_d * 32, features_d * 64, 4, 2, 1), # -> 2x2
+            # After the above blocks we have 2x2 feature map
+            nn.Conv2d(features_d * 64, 1, 4, 1, 1, bias=False), # -> 1x1
             # No Sigmoid because we use BCEWithLogitsLoss
         )
 

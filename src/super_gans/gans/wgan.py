@@ -75,8 +75,9 @@ class Critic(nn.Module):
             _block(channels * 4, channels * 8, 4, 2, 1, norm=True), # -> 16x16
             _block(channels * 8, channels * 16, 4, 2, 1, norm=True),# -> 8x8
             _block(channels * 16, channels * 32, 4, 2, 1, norm=True), # -> 4x4
-            # After the above blocks we have 4x4 feature map
-            nn.Conv2d(channels * 32, 1, 4, 1, 0, bias=False), # -> 1x1
+            _block(channels * 32, channels * 64, 4, 2, 1, norm=True), # -> 2x2
+            # After the above blocks we have 2x2 feature map
+            nn.Conv2d(channels * 64, 1, 4, 1, 1, bias=False), # -> 1x1
             # No Sigmoid because we use the Wasserstein loss
         )
 

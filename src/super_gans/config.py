@@ -45,8 +45,14 @@ timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 FID_REAL_DIR = f"{DATA_DIR}/fid_real"
 FID_FAKE_DIR = f"{DATA_DIR}/fid_fake"
 # Persistent directories for models and results (to keep after job completion)
-MODELS_DIR = f"{DRIVE_PATH}/saved_models/{timestamp}"
-RESULTS_DIR = f"{DRIVE_PATH}/results/{timestamp}"
+# In Kaggle, avoid timestamp subdirs as the session is ephemeral (12-hour limit)
+# In Colab/Local, keep timestamp subdirs for run organization
+if IN_KAGGLE:
+    MODELS_DIR = f"{DRIVE_PATH}/saved_models"
+    RESULTS_DIR = f"{DRIVE_PATH}/results"
+else:
+    MODELS_DIR = f"{DRIVE_PATH}/saved_models/{timestamp}"
+    RESULTS_DIR = f"{DRIVE_PATH}/results/{timestamp}"
 
 with resources.files("super_gans").joinpath("config.yaml").open("r") as f:
     config = yaml.safe_load(f)

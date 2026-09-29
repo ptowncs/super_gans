@@ -391,7 +391,7 @@ def log_tensorboard_visuals(wandb, gen, real_batch, gen_input, epoch):
         img_grid_real = make_grid(real_rgb, nrow=8, normalize=True, value_range=(-1, 1))
 
         # Save images locally for user verification
-        local_visuals_dir = "./results/visuals"
+        local_visuals_dir = f"{cfg.RESULTS_DIR}/visuals"
         os.makedirs(local_visuals_dir, exist_ok=True)
         fake_path_png = os.path.join(local_visuals_dir, f"fake_epoch_{epoch:03d}.png")
         real_path_png = os.path.join(local_visuals_dir, f"real_epoch_{epoch:03d}.png")

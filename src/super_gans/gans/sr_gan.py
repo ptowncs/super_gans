@@ -238,6 +238,9 @@ def training_loop(loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wand
             if current_fid < best_fid:
                 best_fid = current_fid
                 best_fid_epoch = epoch
+                # --- NEW: Update WandB summary immediately for interruption resilience ---
+                wandb.summary["Best FID Epoch"] = best_fid_epoch
+                wandb.summary["Best FID Score"] = best_fid
                 utils.save_model(gen, disc, opt_gen, opt_disc, epoch, filename="best_gan.pth")
             print(f"Epoch [{epoch}/{cfg.num_epochs}]: Best_fid_score={best_fid:.4f}, Best_fid_epoch={best_fid_epoch}")
         else:

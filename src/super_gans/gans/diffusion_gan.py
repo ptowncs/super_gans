@@ -357,6 +357,9 @@ def training_loop(
                 if fid_value < best_fid:
                     best_fid = fid_value
                     best_fid_epoch = epoch
+                    # --- NEW: Update WandB summary immediately for interruption resilience ---
+                    wandb.summary["Best FID Epoch"] = best_fid_epoch
+                    wandb.summary["Best FID Score"] = best_fid
                     utils.save_model(model, model, optimizer, optimizer, epoch, filename="best_diffusion.pth")
                     print(f"*** New best FID: {best_fid:.4f} at epoch {best_fid_epoch} ***")
             model.train()

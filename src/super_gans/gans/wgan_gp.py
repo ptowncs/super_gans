@@ -144,12 +144,15 @@ def gradient_penalty(critic, real, fake, device="cpu"):
     """
     Calculate gradient penalty for WGAN-GP
     """
+    print(f"    Starting gradient penalty calculation")  # Debug print
     BATCH_SIZE, C, H, W = real.shape
     alpha = torch.rand((BATCH_SIZE, 1, 1, 1)).repeat(1, C, H, W).to(device)
     interpolated = real * alpha + fake * (1 - alpha)
+    print(f"    Created interpolated images")  # Debug print
 
     # Calculate critic scores
     mixed_scores = critic(interpolated)
+    print(f"    Computed critic scores for interpolated images")  # Debug print
 
     # Take the gradient of the scores with respect to the images
     gradient = torch.autograd.grad(
@@ -159,9 +162,11 @@ def gradient_penalty(critic, real, fake, device="cpu"):
         create_graph=True,
         retain_graph=True,
     )[0]
+    print(f"    Computed gradients")  # Debug print
     gradient = gradient.view(gradient.shape[0], -1)
     gradient_norm = gradient.norm(2, dim=1)
     gradient_penalty = ((gradient_norm - 1) ** 2).mean()
+    print(f"    Gradient penalty: {gradient_penalty.item()}")  # Debug print
     return gradient_penalty
 
 
@@ -191,6 +196,19 @@ def training_loop(
     train_csv_path = utils.setup_training_csv("wgan_gp")
     val_csv_path = utils.setup_training_csv("wgan_gp")  # Using same CSV for simplicity
 
+    # Create data loader for efficient batching
+    loader_kwargs = {
+        'batch_size': cfg.batch_size,
+        'shuffle': True,
+        'num_workers': cfg.num_workers,
+        'pin_memory': cfg.num_workers > 0,
+    }
+    if cfg.num_workers > 0:
+        loader_kwargs['prefetch_factor'] = 4
+        loader_kwargs['persistent_workers'] = True
+
+    loader = DataLoader(dataset, **loader_kwargs)
+
     for epoch in range(start_epoch, cfg.num_epochs):
         process = psutil.Process(os.getpid())
         print(
@@ -199,7 +217,7 @@ def training_loop(
         )
 
         # WGAN-GP-specific: train critic more than generator
-        for batch_idx, (real, _) in enumerate(dataset):
+        for batch_idx, (real, _) in enumerate(loader):
             real = real.to(cfg.device)
             batch_size = real.shape[0]
 
@@ -237,7 +255,7 @@ def training_loop(
         )
 
         # --- VISUALS AT START OF EPOCH ---
-        if epoch % 10 == 0:
+        if batch_idx == 0 and (epoch == start_epoch or epoch % 10 == 0):
             print(
                 f"Epoch [{epoch}/{cfg.num_epochs}] Loss C: {loss_critic.item():.4f}, Loss G: {loss_gen.item():.4f}"
             )
@@ -248,7 +266,7 @@ def training_loop(
             utils.save_model(
                 gen, critic, opt_gen, opt_critic, epoch, filename="latest_gan.pth"
             )
-            current_fid = metrics.compute_fid_from_images(gen, dataset, FrechetInceptionDistance(feature=cfg.fid_dims, normalize=True).to(cfg.device))
+            current_fid = metrics.compute_fid_from_images(gen, loader, FrechetInceptionDistance(feature=cfg.fid_dims, normalize=True).to(cfg.device))
             # Note: compute_fid_from_images expects a loader, but we can adapt or use alternative
 
             # VERIFIED FIX: Bundle 'epoch' into the dictionary and commit the full row to WandB
@@ -325,8 +343,11 @@ def createWandB():
 def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
     # writer = SummaryWriter("logs/wgan_gp_run_1")
     wandb = createWandB()
+    print("Wandb initialized")  # Debug print
     utils.prepare_data()
+    print("Data prepared")  # Debug print
     train_dataset = utils.load_data()
+    print(f"Dataset loaded, size: {len(train_dataset)}")  # Debug print
 
     critic = Critic().to(cfg.device)
     gen = Generator().to(cfg.device)
@@ -334,11 +355,13 @@ def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
     critic.apply(initialize_weights)
     gen.apply(initialize_weights)
     # Compile models for faster training (PyTorch 2.0+)
-    if hasattr(torch, "compile"):
-        critic = torch.compile(critic)
-        gen = torch.compile(gen)
-    opt_critic = optim.Adam(critic.parameters(), lr=cfg.lr, betas=(0.0, 0.9))
-    opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr, betas=(0.0, 0.9))
+    # Disabled for WGAN-GP due to gradient penalty requiring second-order derivatives
+    # which are not supported with torch.compile + aot_autograd
+    # if hasattr(torch, "compile"):
+    #     critic = torch.compile(critic)
+    #     gen = torch.compile(gen)
+    opt_critic = optim.Adam(critic.parameters(), lr=cfg.lr, betas=(0.5, 0.9))  # beta1=0.5 adds momentum for stable GAN training
+    opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr, betas=(0.5, 0.9))  # beta1=0.5 adds momentum for stable GAN training
 
     start_epoch = 0
     if restart:

@@ -40,12 +40,13 @@ class Critic(nn.Module):
     """
     WGAN Critic (Discriminator): Instead of outputting a probability,
     outputs a scalar score. No sigmoid activation at the end.
-    Architecture follows the DCGAN critic pattern (adjusted for 128x128 input).
+    Architecture follows the DCGAN critic pattern but adapted for configurable image size (power of 2).
     """
 
-    def __init__(self, channels=64):
+    def __init__(self, channels=64, image_size=128):
         super(Critic, self).__init__()
         self.channels = channels
+        self.image_size = image_size
 
         def _block(in_channels, out_channels, kernel_size, stride, padding, norm=True):
             # Following DCGAN paper: BatchNorm and bias=False for conv layers
@@ -67,19 +68,34 @@ class Critic(nn.Module):
             layers.append(nn.LeakyReLU(0.2, inplace=False))
             return nn.Sequential(*layers)
 
-        # input: N x cfg.num_channels x 128 x 128
-        self.main = nn.Sequential(
-            nn.Conv2d(cfg.num_channels, channels, 4, 2, 1, bias=False),
-            nn.LeakyReLU(0.2),
-            _block(channels, channels * 2, 4, 2, 1, norm=True),   # -> 64x64
-            _block(channels * 2, channels * 4, 4, 2, 1, norm=True), # -> 32x32
-            _block(channels * 4, channels * 8, 4, 2, 1, norm=True), # -> 16x16
-            _block(channels * 8, channels * 16, 4, 2, 1, norm=True), # -> 8x8
-            _block(channels * 16, channels * 32, 4, 2, 1, norm=True), # -> 4x4
-            # After the above blocks we have 4x4 feature map
-            nn.Conv2d(channels * 32, 1, 2, 2, 0, bias=False), # -> 1x1
-            # No Sigmoid because we use the Wasserstein loss
-        )
+        # Validate image_size is power of 2
+        assert image_size & (image_size - 1) == 0, "image_size must be power of 2"
+        assert image_size >= 32, "image_size too small for architecture"
+
+        # Calculate number of stride-2 layers needed: log2(image_size)
+        import math
+        num_stride_2_layers = int(math.log2(image_size))
+
+        layers = []
+
+        # Initial layer: cfg.num_channels -> channels
+        layers.append(nn.Conv2d(cfg.num_channels, channels, 4, 2, 1, bias=False))
+        layers.append(nn.LeakyReLU(0.2))
+
+        # Intermediate _block layers: double channels each time
+        curr_channels = channels
+        # We need num_stride_2_layers - 2 intermediate _block layers
+        # (1 initial + (num_stride_2_layers-2) intermediate + 1 final = num_stride_2_layers total)
+        for i in range(num_stride_2_layers - 2):
+            out_channels = curr_channels * 2
+            layers.append(_block(curr_channels, out_channels, 4, 2, 1, norm=True))
+            curr_channels = out_channels
+
+        # Final layer to get to 1x1 output
+        layers.append(nn.Conv2d(curr_channels, 1, 2, 2, 0, bias=False))
+        # No Sigmoid because we use the Wasserstein loss
+
+        self.main = nn.Sequential(*layers)
 
     def forward(self, input):
         return self.main(input)
@@ -89,16 +105,15 @@ class Generator(nn.Module):
     """
     WGAN Generator: Same as DCGAN generator but without the final Sigmoid
     (though we keep Tanh for consistency with [-1,1] range).
-    Architecture follows the DCGAN generator pattern (adjusted for 128x128 output).
-    An explicit upsample layer is kept as a safety‑net for experimenting with
-    different image sizes; this deviates from the strict reference but adds
-    virtually no cost and protects against off‑by‑one errors.
+    Architecture follows the DCGAN generator pattern but adapted for configurable image size (power of 2).
+    The architecture is built dynamically so no safety upsample is needed for power-of-2 sizes.
     """
 
-    def __init__(self, z_dim=128, channels=64):
+    def __init__(self, z_dim=128, channels=64, image_size=128):
         super(Generator, self).__init__()
         self.z_dim = z_dim
         self.channels = channels
+        self.image_size = image_size
 
         def _block(in_channels, out_channels, kernel_size, stride, padding, norm=True):
             # Following DCGAN paper: BatchNorm and bias=False for conv layers
@@ -119,24 +134,46 @@ class Generator(nn.Module):
             layers.append(nn.ReLU(inplace=False))
             return nn.Sequential(*layers)
 
+        # Validate image_size is power of 2
+        assert image_size & (image_size - 1) == 0, "image_size must be power of 2"
+        assert image_size >= 32, "image_size too small for architecture"
+
+        # Calculate number of stride-2 layers needed: log2(image_size) - 2
+        import math
+        num_stride_2_layers = int(math.log2(image_size)) - 2
+
+        layers = []
+
         # Start with z_dim -> channels*16 x 4 x 4
-        self.main = nn.Sequential(
-            _block(z_dim, channels * 16, 4, 1, 0, norm=True),   # 4x4
-            _block(channels * 16, channels * 8, 4, 2, 1, norm=True),  # 8x8
-            _block(channels * 8, channels * 4, 4, 2, 1, norm=True),   # 16x16
-            _block(channels * 4, channels * 2, 4, 2, 1, norm=True),   # 32x32
-            _block(channels * 2, channels, 4, 2, 1, norm=True),       # 64x64
-            nn.ConvTranspose2d(channels, cfg.num_channels, 4, 2, 1, bias=False),
-        )
-        # Safety upsample to guarantee exact output size when experimenting
-        self.upsample = nn.Upsample(size=(cfg.image_size, cfg.image_size), mode='nearest')
+        layers.append(_block(z_dim, channels * 16, 4, 1, 0, norm=True))  # 4x4
+
+        # Intermediate _block layers: double spatial size, halve channels
+        curr_channels = channels * 16
+        # We need num_stride_2_layers - 1 intermediate _block layers
+        # (1 initial + (num_stride_2_layers-1) intermediate + 1 final = num_stride_2_layers total)
+        for i in range(num_stride_2_layers - 1):
+            out_channels = curr_channels // 2
+            layers.append(_block(curr_channels, out_channels, 4, 2, 1, norm=True))
+            curr_channels = out_channels
+
+        # Final layer to get to target image channels
+        layers.append(nn.ConvTranspose2d(curr_channels, cfg.num_channels, 4, 2, 1, bias=False))
+
+        # Optional: upsample to exact size if needed (shouldn't be needed for powers of 2, but keeping for safety)
+        if 4 * (2 ** num_stride_2_layers) != image_size:
+            self.upsample = nn.Upsample(size=(image_size, image_size), mode='nearest')
+        else:
+            self.upsample = None
+
+        self.main = nn.Sequential(*layers)
         self.tanh = nn.Tanh()
 
     def forward(self, input):
         # Reshape input from [batch_size, z_dim] to [batch_size, z_dim, 1, 1] for ConvTranspose2d
         x = input.view(input.size(0), input.size(1), 1, 1)
         x = self.main(x)
-        x = self.upsample(x)
+        if self.upsample is not None:
+            x = self.upsample(x)
         return self.tanh(x)
 
 
@@ -317,8 +354,8 @@ def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
     utils.prepare_data()
     train_dataset = utils.load_data()
 
-    critic = Critic().to(cfg.device)
-    gen = Generator().to(cfg.device)
+    critic = Critic(image_size=cfg.image_size).to(cfg.device)
+    gen = Generator(image_size=cfg.image_size).to(cfg.device)
     # Apply DCGAN weight initialization
     critic.apply(initialize_weights)
     gen.apply(initialize_weights)

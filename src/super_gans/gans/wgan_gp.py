@@ -385,8 +385,8 @@ def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
     # if hasattr(torch, "compile"):
     #     critic = torch.compile(critic)
     #     gen = torch.compile(gen)
-    opt_critic = optim.Adam(critic.parameters(), lr=cfg.lr, betas=(0.5, 0.9))  # beta1=0.5 adds momentum for stable GAN training
-    opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr, betas=(0.5, 0.9))  # beta1=0.5 adds momentum for stable GAN training
+    opt_critic = optim.Adam(critic.parameters(), lr=cfg.lr, betas=cfg.wgan_betas)  # beta1=0.0 as per WGAN best practices
+    opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr, betas=cfg.wgan_betas)  # beta1=0.0 as per WGAN best practices
 
     start_epoch = 0
     if restart:

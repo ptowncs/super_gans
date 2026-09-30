@@ -363,8 +363,8 @@ def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
     if hasattr(torch, "compile"):
         critic = torch.compile(critic)
         gen = torch.compile(gen)
-    opt_critic = optim.Adam(critic.parameters(), lr=cfg.lr, betas=(0.5, 0.9))
-    opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr, betas=(0.5, 0.9))
+    opt_critic = optim.Adam(critic.parameters(), lr=cfg.lr, betas=cfg.wgan_betas)
+    opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr, betas=cfg.wgan_betas)
 
     start_epoch = 0
     if restart:

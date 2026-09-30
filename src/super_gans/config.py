@@ -1,8 +1,6 @@
 import os
 from datetime import datetime
 import torch
-import yaml
-from importlib import resources
 from pathlib import Path
 from PIL import Image
 import albumentations as A
@@ -54,11 +52,6 @@ else:
     MODELS_DIR = f"{DRIVE_PATH}/saved_models/{timestamp}"
     RESULTS_DIR = f"{DRIVE_PATH}/results/{timestamp}"
 
-with resources.files("super_gans").joinpath("config.yaml").open("r") as f:
-    config = yaml.safe_load(f)
-print(config)
-print(config["repos"]["dataset_handle"])
-
 # Data source selection: 'ptmooney' or 'rsna'
 # In Kaggle environment, default to ptmooney unless explicitly overridden to rsna
 # This prevents accidentally trying to load RSNA data in Kaggle without proper setup
@@ -83,34 +76,38 @@ else:
 
 print(f"Using data source: {DATA_SOURCE}")
 
-# Hyperparameters etc.
 device = "cuda" if torch.cuda.is_available() else "cpu"
-
-lr = 1e-4
-z_dim = 128
-image_size = 128
-num_channels = 1
-num_workers = 0
-image_dim = image_size * image_size * num_channels
-batch_size = 64
-num_epochs = 2
-classify_num_epochs = 15
-classify_image_size = 224
-num_images_fid_sample = 4 * batch_size  # 256
-num_images_fid_score = 5000
-fid_interval = 1
-fid_dims = 2048
+lr = float(os.environ.get("LR", "1e-4"))  # learning rate
+z_dim = int(os.environ.get("Z_DIM", "128"))
+image_size = int(os.environ.get("IMAGE_SIZE", "128"))
+num_channels = int(os.environ.get("NUM_CHANNELS", "1"))
+num_workers = int(os.environ.get("NUM_WORKERS", "0"))
+batch_size = int(os.environ.get("BATCH_SIZE", "64"))  # note: this was 64 in original config.py, not 32 from yaml
+num_epochs = int(os.environ.get("NUM_EPOCHS", "2"))   # this was 2 in original config.py, not 400 from yaml
+classify_num_epochs = int(os.environ.get("CLASSIFY_NUM_EPOCHS", "15"))
+classify_image_size = int(os.environ.get("CLASSIFY_IMAGE_SIZE", "224"))
+num_images_fid_sample = int(os.environ.get("NUM_IMAGES_FID_SAMPLE", str(4 * batch_size)))  # 256
+num_images_fid_score = int(os.environ.get("NUM_IMAGES_FID_SCORE", "5000"))
+fid_interval = int(os.environ.get("FID_INTERVAL", "1"))
+fid_dims = int(os.environ.get("FID_DIMS", "2048"))
 betas = (0.5, 0.999)
 
-# WGAN / WGAN-GP specific hyperparameters
-n_critic = 5          # Number of critic iterations per generator iteration
-weight_clip = 0.01    # Clipping parameter for original WGAN
-lambda_gp = 10        # Gradient penalty coefficient for WGAN-GP
+# WGAN / WGAN-GP specific hyperparameters - MADE CONFIGURABLE
+n_critic = int(os.environ.get("N_CRITIC", "5"))  # Number of critic iterations per generator iteration
+weight_clip = float(os.environ.get("WEIGHT_CLIP", "0.01"))    # Clipping parameter for original WGAN
+lambda_gp = float(os.environ.get("LAMBDA_GP", "10"))        # Gradient penalty coefficient for WGAN-GP
 # Alternative betas for WGAN/WGAN-GP (often beta1=0.0, beta2=0.9)
 wgan_betas = (0.0, 0.9)
 
-HIGH_RES = 128
-LOW_RES = HIGH_RES // 4
+# Set high and low resolution - MADE CONFIGURABLE VIA ENVIRONMENT VARIABLES
+HIGH_RES = int(os.environ.get("HIGH_RES", "128"))
+LOW_RES = int(os.environ.get("LOW_RES", "32"))
+
+# Validate that HIGH_RES is divisible by LOW_RES for SRGAN (if using SRGAN)
+# Only validate if we're likely to use SRGAN - this affects all GANs but SRGAN has the 4x requirement
+if HIGH_RES % LOW_RES != 0:
+    print(f"WARNING: HIGH_RES ({HIGH_RES}) is not evenly divisible by LOW_RES ({LOW_RES}). "
+          f"This may cause issues with SRGAN which expects integer division.")
 
 # Change inside config.py:
 high_res_transform = A.Compose(
@@ -163,8 +160,7 @@ test_transform = A.Compose(
 
 
 # Diffusion model parameters
-diffusion_timesteps = 1000  # Number of diffusion steps
-diffusion_beta_start = 0.0001  # Starting value of beta schedule
-diffusion_beta_end = 0.02      # Ending value of beta schedule
+diffusion_timesteps = int(os.environ.get("DIFFUSION_TIMESTEPS", "1000"))  # Number of diffusion steps
 # We'll use a linear schedule from beta_start to beta_end over diffusion_timesteps
-
+diffusion_beta_start = float(os.environ.get("DIFFUSION_BETA_START", "0.0001"))  # Starting value of beta schedule
+diffusion_beta_end = float(os.environ.get("DIFFUSION_BETA_END", "0.02"))      # Ending value of beta schedule

@@ -187,7 +187,7 @@ def training_loop(
     start_epoch=0,
     best_fid=float("inf"),
     best_fid_epoch=0,
-    n_critic=5,
+    n_critic=cfg.n_critic,
     clip_value=0.01,
 ):
     """

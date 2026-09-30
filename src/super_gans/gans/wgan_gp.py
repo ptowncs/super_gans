@@ -207,7 +207,7 @@ def training_loop(
     best_fid=float("inf"),
     best_fid_epoch=0,
     lambda_gp=10,
-    n_critic=5,
+    n_critic=cfg.n_critic,
 ):
     """
     WGAN-GP training loop with gradient penalty

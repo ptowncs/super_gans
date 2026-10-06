@@ -353,7 +353,7 @@ def main(restart=False, best_fid=float('inf'), best_fid_epoch=0):
         'num_workers': cfg.num_workers,
         'pin_memory': cfg.num_workers > 0,
     }
-    if cfg.NUM_WORKERS > 0:
+    if cfg.num_workers > 0:
         loader_kwargs['prefetch_factor'] = 4
         loader_kwargs['persistent_workers'] = True
 

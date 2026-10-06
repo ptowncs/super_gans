@@ -205,6 +205,9 @@ def train_fn(epoch, loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wa
             print(f"Epoch [{epoch}/{cfg.num_epochs}] Loss D: {loss_disc.item():.4f}, Loss G: {gen_loss.item():.4f}")
             utils.log_tensorboard_visuals(wandb, gen, high_res, low_res, epoch)
 
+        # Return losses for logging
+        return loss_disc.item(), gen_loss.item()
+
 
 def training_loop(loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wandb, start_epoch=1, best_fid=float('inf'), best_fid_epoch=0):
     # feature=64 uses a lower layer of Inception; it's faster for monitoring
@@ -221,7 +224,7 @@ def training_loop(loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wand
         process = psutil.Process(os.getpid())
         print(f"Epoch: {epoch} | RAM GB: {process.memory_info().rss / 1024**3:.2f} \
               | GPU GB: {torch.cuda.memory_allocated() / 1024**3:.2f}")
-        train_fn(epoch, loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wandb)
+        loss_disc_val, loss_gen_val = train_fn(epoch, loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wandb, start_epoch)
 
         # --- FID CALCULATION AT END OF EPOCH ---
         if (epoch == start_epoch) or (epoch % cfg.fid_interval == 0) or (epoch == cfg.num_epochs):
@@ -235,10 +238,10 @@ def training_loop(loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wand
 
             # Log losses and FID to training CSV
             utils.log_training_row(train_csv_path, epoch,
-                                  loss_g=gen_loss.item(),
-                                  loss_d=loss_disc.item(),
+                                  loss_g=loss_gen_val,
+                                  loss_d=loss_disc_val,
                                   fid_train=current_fid)
-            print(f"Epoch [{epoch}/{cfg.num_epochs}] CSV: G_loss={gen_loss.item():.6f}, D_loss={loss_disc.item():.6f}, FID_train={current_fid:.6f}")
+            print(f"Epoch [{epoch}/{cfg.num_epochs}] CSV: G_loss={loss_gen_val:.6f}, D_loss={loss_disc_val:.6f}, FID_train={current_fid:.6f}")
 
             # Checkpoint: Save as 'best' if quality improved
             if current_fid < best_fid:
@@ -251,7 +254,7 @@ def training_loop(loader, disc, gen, opt_disc, opt_gen, mse, bce, vgg_loss, wand
             print(f"Epoch [{epoch}/{cfg.num_epochs}]: Best_fid_score={best_fid:.4f}, Best_fid_epoch={best_fid_epoch}")
         else:
             wandb.log({"epoch": epoch}, commit=True)
-            print(f"Epoch [{epoch}/{cfg.num_epochs}] CSV: G_loss={gen_loss.item():.6f}, D_loss={loss_disc.item():.6f}, FID_train=N/A")
+            print(f"Epoch [{epoch}/{cfg.num_epochs}] CSV: G_loss={loss_gen_val:.6f}, D_loss={loss_disc_val:.6f}, FID_train=N/A")
 
         # End of Epoch cleanup
         #writer.flush()

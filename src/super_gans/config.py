@@ -91,13 +91,14 @@ num_images_fid_score = int(os.environ.get("NUM_IMAGES_FID_SCORE", "5000"))
 fid_interval = int(os.environ.get("FID_INTERVAL", "1"))
 fid_dims = int(os.environ.get("FID_DIMS", "2048"))
 betas = (0.5, 0.999)
+# Alternative betas for WGAN/WGAN-GP (often beta1=0.0, beta2=0.9)
+# Changed to (0.5, 0.9) for better Adam optimizer stability
+wgan_betas = (0.5, 0.9)
 
 # WGAN / WGAN-GP specific hyperparameters - MADE CONFIGURABLE
 n_critic = int(os.environ.get("N_CRITIC", "5"))  # Number of critic iterations per generator iteration
 weight_clip = float(os.environ.get("WEIGHT_CLIP", "0.01"))    # Clipping parameter for original WGAN
 lambda_gp = float(os.environ.get("LAMBDA_GP", "10"))        # Gradient penalty coefficient for WGAN-GP
-# Alternative betas for WGAN/WGAN-GP (often beta1=0.0, beta2=0.9)
-wgan_betas = (0.0, 0.9)
 
 # Set high and low resolution - MADE CONFIGURABLE VIA ENVIRONMENT VARIABLES
 HIGH_RES = int(os.environ.get("HIGH_RES", "128"))

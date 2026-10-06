@@ -274,8 +274,7 @@ def training_loop(
             utils.save_model(
                 gen, critic, opt_gen, opt_critic, epoch, filename="latest_gan.pth"
             )
-            current_fid = metrics.compute_fid_from_images(gen, dataset, FrechetInceptionDistance(feature=cfg.fid_dims, normalize=True).to(cfg.device))
-            # Note: compute_fid_from_images expects a loader, but we can adapt or use alternative
+            current_fid = metrics.compute_fid_from_images(gen, loader, FrechetInceptionDistance(feature=cfg.fid_dims, normalize=True).to(cfg.device))
 
             # VERIFIED FIX: Bundle 'epoch' into the dictionary and commit the full row to WandB
             wandb.log({"Metrics/FID": current_fid, "epoch": epoch}, commit=True)

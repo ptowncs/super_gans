@@ -385,8 +385,8 @@ def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
     # if hasattr(torch, "compile"):
     #     critic = torch.compile(critic)
     #     gen = torch.compile(gen)
-    opt_critic = optim.Adam(critic.parameters(), lr=cfg.lr, betas=cfg.wgan_betas)  # beta1=0.0 as per WGAN best practices
-    opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr, betas=cfg.wgan_betas)  # beta1=0.0 as per WGAN best practices
+    opt_critic = optim.Adam(critic.parameters(), lr=cfg.lr, betas=cfg.wgan_betas)  # beta1=0.5 for Adam optimizer stability
+    opt_gen = optim.Adam(gen.parameters(), lr=cfg.lr, betas=cfg.wgan_betas)  # beta1=0.5 for Adam optimizer stability
 
     start_epoch = 0
     if restart:

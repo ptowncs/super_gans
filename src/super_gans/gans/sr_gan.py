@@ -397,7 +397,54 @@ def main(restart=False, best_fid=float('inf'), best_fid_epoch=0):
     gan_checkpoints_dir = f"{cfg.MODELS_DIR}/gan_checkpoints"
     best_model_path = f"{gan_checkpoints_dir}/best_gan.pth"
     utils.load_best_model(gen, best_model_path)
-    utils.generate_images_metrics(gen, generated_images_dir, cfg.num_images_fid_score)
+
+    # SRGAN-specific image generation for validation
+    # Generate SR images by passing low-res validation images through generator
+    os.makedirs(generated_images_dir, exist_ok=True)
+    gen.eval()
+    images_saved = 0
+
+    # Create data loader for validation dataset (no shuffling for deterministic results)
+    val_loader_kwargs = {
+        'dataset': validation_dataset,  # Already built using load_datapairs()
+        'batch_size': cfg.BATCH_SIZE,
+        'shuffle': False,  # No shuffle for consistent validation
+        'num_workers': cfg.NUM_WORKERS,
+        'pin_memory': cfg.NUM_WORKERS > 0,
+    }
+    if cfg.NUM_WORKERS > 0:
+        val_loader_kwargs['prefetch_factor'] = 4
+        val_loader_kwargs['persistent_workers'] = True
+
+    val_loader = DataLoader(**val_loader_kwargs)
+
+    with torch.inference_mode():
+        for low_res, high_res in val_loader:  # validation_dataset yields (low_res, high_res)
+            low_res = low_res.to(cfg.device)
+            current_batch_size = low_res.shape[0]
+
+            # Generate SR images: generator(low_res) -> SR output
+            sr_output = gen(low_res)
+
+            # Save SR outputs as PNG images
+            for i in range(current_batch_size):
+                if images_saved >= cfg.num_images_fid_score:
+                    break
+                # Convert grayscale -> RGB to match real images format
+                sr_rgb = sr_output[i].repeat(3, 1, 1)
+                filename = os.path.join(
+                    generated_images_dir, f"sr_image_{images_saved:04d}.png"
+                )
+                # Generator uses Tanh (outputting [-1, 1]), ensure normalize=True and value_range=(-1, 1)
+                save_image(sr_rgb, filename, normalize=True, value_range=(-1, 1))
+                images_saved += 1
+
+            if images_saved >= cfg.num_images_fid_score:
+                break
+
+    print(f"Successfully generated and saved {images_saved} SR images to {generated_images_dir}/")
+
+    # Now calculate FID/KID between real high-res images and SR-generated images
     fid_value = metrics.calc_fid_score(real_images_dir, generated_images_dir)
     kid_mean, kid_std = metrics.calc_kid_score(real_images_dir, generated_images_dir)
     print(f"FID score: {fid_value}")

@@ -61,13 +61,16 @@ class DiffusionUNet(nn.Module):
             nn.Linear(time_emb_dim, time_emb_dim),
         )
 
+        # Time projection to match initial conv output channels (64)
+        self.time_proj = nn.Linear(time_emb_dim, 64)
+
         # Initial convolution
         self.init_conv = nn.Conv2d(in_channels, 64, kernel_size=3, padding=1)
 
         # Downsampling
-        self.down1 = self._conv_block(64, 128)
-        self.down2 = self._conv_block(128, 256)
-        self.down3 = self._conv_block(256, 512)
+        self.down1 = self._conv_block(64, 128, downsample=True)
+        self.down2 = self._conv_block(128, 256, downsample=True)
+        self.down3 = self._conv_block(256, 512, downsample=True)
 
         # Upsampling
         self.up1 = self._up_conv_block(512, 256)
@@ -77,15 +80,25 @@ class DiffusionUNet(nn.Module):
         # Final convolution
         self.final_conv = nn.Conv2d(64, out_channels, kernel_size=1)
 
-    def _conv_block(self, in_channels, out_channels):
-        return nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
-            nn.GroupNorm(8, out_channels),
-            nn.SiLU(),
-            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
-            nn.GroupNorm(8, out_channels),
-            nn.SiLU(),
-        )
+    def _conv_block(self, in_channels, out_channels, downsample=False):
+        if downsample:
+            return nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, stride=2),
+                nn.GroupNorm(8, out_channels),
+                nn.SiLU(),
+                nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+                nn.GroupNorm(8, out_channels),
+                nn.SiLU(),
+            )
+        else:
+            return nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+                nn.GroupNorm(8, out_channels),
+                nn.SiLU(),
+                nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+                nn.GroupNorm(8, out_channels),
+                nn.SiLU(),
+            )
 
     def _up_conv_block(self, in_channels, out_channels):
         return nn.Sequential(
@@ -123,13 +136,12 @@ class DiffusionUNet(nn.Module):
 
         # We'll project time_emb to have the same number of channels as the initial conv output (64)
         # and then add it as a bias (after expanding to spatial dimensions).
-        time_emb = self.time_mlp(t)  # (batch, time_emb_dim)
-        time_emb = nn.Linear(self.time_emb_dim, 64)(time_emb)  # (batch, 64)
+        time_emb = self.time_proj(time_emb)  # (batch, 64)
         time_emb = time_emb.unsqueeze(-1).unsqueeze(-1)  # (batch, 64, 1, 1)
 
         # Initial conv
-        x = self.init_conv(x)  # (batch, 64, H, W)
-        x = x + time_emb  # Add time embedding
+        x_init = self.init_conv(x)  # (batch, 64, H, W)
+        x = x_init + time_emb  # Add time embedding
 
         # Downsampling
         x1 = self.down1(x)  # (batch, 128, H/2, W/2)
@@ -138,11 +150,20 @@ class DiffusionUNet(nn.Module):
 
         # Upsampling
         x = self.up1(x3)  # (batch, 256, H/4, W/4)
+        # Handle potential size mismatch in skip connection - interpolate to match spatial dimensions
+        if x.shape != x2.shape:
+            x2 = F.interpolate(x2, size=x.shape[2:], mode='nearest')
         x = x + x2  # Skip connection
         x = self.up2(x)  # (batch, 128, H/2, W/2)
+        # Handle potential size mismatch in skip connection - interpolate to match spatial dimensions
+        if x.shape != x1.shape:
+            x1 = F.interpolate(x1, size=x.shape[2:], mode='nearest')
         x = x + x1  # Skip connection
         x = self.up3(x)  # (batch, 64, H, W)
-        x = x + self.init_conv(x)  # Skip connection from initial (with time embedding) - note: we already added time_emb to init_conv output
+        # Handle potential size mismatch in skip connection - interpolate to match spatial dimensions
+        if x.shape != x_init.shape:
+            x_init = F.interpolate(x_init, size=x.shape[2:], mode='nearest')
+        x = x + x_init  # Skip connection from initial (with time embedding)
 
         # Final conv
         output = self.final_conv(x)  # (batch, 1, H, W)
@@ -154,7 +175,7 @@ def extract(a, t, x_shape):
     Extract coefficients from a based on t and reshape to match x_shape.
     """
     batch_size = t.shape[0]
-    out = a.gather(-1, t.cpu())
+    out = a.gather(-1, t)
     return out.reshape(batch_size, *((1,) * (len(x_shape) - 1))).to(t.device)
 
 
@@ -421,8 +442,9 @@ def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
         out_channels=cfg.num_channels
     ).to(cfg.device)
     # Compile model for faster training (PyTorch 2.0+)
-    if hasattr(torch, "compile"):
-        model = torch.compile(model)
+    # Disabling compile for now due to fake tensor issues on some systems
+    # if hasattr(torch, "compile"):
+    #     model = torch.compile(model)
 
     # Create the diffusion process
     diffusion = Diffusion(

@@ -91,6 +91,7 @@ num_images_fid_score = int(os.environ.get("NUM_IMAGES_FID_SCORE", "5000"))
 fid_interval = int(os.environ.get("FID_INTERVAL", "1"))
 fid_dims = int(os.environ.get("FID_DIMS", "2048"))
 betas = (0.5, 0.999)
+image_dim = num_channels * image_size * image_size  # Total pixels in flattened image
 # Alternative betas for WGAN/WGAN-GP (often beta1=0.0, beta2=0.9)
 # Changed to (0.5, 0.9) for better Adam optimizer stability
 wgan_betas = (0.5, 0.9)

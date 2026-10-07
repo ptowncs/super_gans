@@ -407,12 +407,12 @@ def main(restart=False, best_fid=float('inf'), best_fid_epoch=0):
     # Create data loader for validation dataset (no shuffling for deterministic results)
     val_loader_kwargs = {
         'dataset': validation_dataset,  # Already built using load_datapairs()
-        'batch_size': cfg.BATCH_SIZE,
+        'batch_size': cfg.batch_size,
         'shuffle': False,  # No shuffle for consistent validation
-        'num_workers': cfg.NUM_WORKERS,
-        'pin_memory': cfg.NUM_WORKERS > 0,
+        'num_workers': cfg.num_workers,
+        'pin_memory': cfg.num_workers > 0,
     }
-    if cfg.NUM_WORKERS > 0:
+    if cfg.num_workers > 0:
         val_loader_kwargs['prefetch_factor'] = 4
         val_loader_kwargs['persistent_workers'] = True
 

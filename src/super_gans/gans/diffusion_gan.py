@@ -175,8 +175,12 @@ def extract(a, t, x_shape):
     Extract coefficients from a based on t and reshape to match x_shape.
     """
     batch_size = t.shape[0]
+    # Ensure a is on the same device as t to avoid device mismatch errors
+    # This is a safety check - ideally a and t should already be on the same device
+    if a.device != t.device:
+        a = a.to(t.device)
     out = a.gather(-1, t)
-    return out.reshape(batch_size, *((1,) * (len(x_shape) - 1))).to(t.device)
+    return out.reshape(batch_size, *((1,) * (len(x_shape) - 1)))
 
 
 class Diffusion:
@@ -184,11 +188,15 @@ class Diffusion:
     Diffusion model class to handle the forward and reverse processes.
     """
 
-    def __init__(self, timesteps=cfg.diffusion_timesteps, beta_start=cfg.diffusion_beta_start, beta_end=cfg.diffusion_beta_end):
+    def __init__(self, timesteps=cfg.diffusion_timesteps, beta_start=cfg.diffusion_beta_start, beta_end=cfg.diffusion_beta_end, device=None):
         self.timesteps = timesteps
+        self.device = device
 
         # Beta schedule
-        self.betas = torch.from_numpy(linear_beta_schedule(timesteps, beta_start, beta_end)).float()
+        betas_numpy = linear_beta_schedule(timesteps, beta_start, beta_end)
+        self.betas = torch.from_numpy(betas_numpy).float()
+        if device is not None:
+            self.betas = self.betas.to(device)
         self.alphas = 1. - self.betas
         self.alphas_cumprod = torch.cumprod(self.alphas, dim=0)
         self.alphas_cumprod_prev = F.pad(self.alphas_cumprod[:-1], (1, 0), value=1.0)
@@ -196,6 +204,16 @@ class Diffusion:
         self.sqrt_alphas_cumprod = torch.sqrt(self.alphas_cumprod)
         self.sqrt_one_minus_alphas_cumprod = torch.sqrt(1. - self.alphas_cumprod)
         self.posterior_variance = self.betas * (1. - self.alphas_cumprod_prev) / (1. - self.alphas_cumprod)
+
+        # Move all buffers to device if specified
+        if device is not None:
+            self.alphas = self.alphas.to(device)
+            self.alphas_cumprod = self.alphas_cumprod.to(device)
+            self.alphas_cumprod_prev = self.alphas_cumprod_prev.to(device)
+            self.sqrt_recip_alphas = self.sqrt_recip_alphas.to(device)
+            self.sqrt_alphas_cumprod = self.sqrt_alphas_cumprod.to(device)
+            self.sqrt_one_minus_alphas_cumprod = self.sqrt_one_minus_alphas_cumprod.to(device)
+            self.posterior_variance = self.posterior_variance.to(device)
 
     def q_sample(self, x_start, t, noise=None):
         """
@@ -450,7 +468,8 @@ def main(restart=False, best_fid=float("inf"), best_fid_epoch=0):
     diffusion = Diffusion(
         timesteps=cfg.diffusion_timesteps,
         beta_start=cfg.diffusion_beta_start,
-        beta_end=cfg.diffusion_beta_end
+        beta_end=cfg.diffusion_beta_end,
+        device=cfg.device
     )
 
     start_epoch = 1
